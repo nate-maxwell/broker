@@ -23,13 +23,9 @@ from types import ModuleType
 class SignatureMismatchError(Exception):
     """Raised when callback signatures don't match for a namespace."""
 
-    pass
-
 
 class EmitArgumentError(Exception):
     """Raised when emit arguments don't match subscriber signatures."""
-
-    pass
 
 
 CALLBACK = Union[Callable[..., Any], Callable[..., Coroutine[Any, Any, Any]]]
