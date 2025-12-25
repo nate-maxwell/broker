@@ -1,7 +1,10 @@
 import sys
+import inspect
 from dataclasses import dataclass
 from typing import Any
 from typing import Callable
+from typing import Union
+from typing import Optional
 from types import ModuleType
 
 
@@ -31,9 +34,14 @@ This is kept outside of the replaced module class to create a protected
 closure around the event topic:subscriber structure.
 """
 
+_NAMESPACE_SIGNATURES: dict[str, Optional[set[str]]] = {}
+"""Track the expected keyword arguments for each namespace."""
+
 
 class Broker(ModuleType):
     """Message broker system with hierarchical namespaces."""
+
+    CALLBACK = CALLBACK
 
     def __init__(self, name: str) -> None:
         super().__init__(name)
@@ -41,6 +49,56 @@ class Broker(ModuleType):
     @staticmethod
     def clear() -> None:
         _SUBSCRIBERS.clear()
+        _NAMESPACE_SIGNATURES.clear()
+
+    @staticmethod
+    def _get_callback_params(callback: CALLBACK) -> Union[set[str], None]:
+        """Extract parameter names from a callback function.
+
+        Args:
+            callback (CALLBACK): The callback function to inspect.
+
+        Returns:
+            Union[set[str], None]: Set of parameter names, or None if callback accepts **kwargs.
+        """
+        sig = inspect.signature(callback)
+
+        # If the function has **kwargs, it accepts any arguments
+        for param in sig.parameters.values():
+            if param.kind == inspect.Parameter.VAR_KEYWORD:
+                return None
+
+        # Return set of parameter names (excluding *args)
+        return {
+            name
+            for name, param in sig.parameters.items()
+            if param.kind != inspect.Parameter.VAR_POSITIONAL
+        }
+
+    @staticmethod
+    def _get_matching_namespaces(namespace: str) -> list[str]:
+        """Get all namespaces that would match the given namespace.
+
+        Args:
+            namespace (str): The namespace to find matches for.
+
+        Returns:
+            list[str]: List of matching namespace patterns.
+        """
+        matching = []
+
+        # Check exact match
+        if namespace in _NAMESPACE_SIGNATURES:
+            matching.append(namespace)
+
+        # Check wildcard matches
+        parts = namespace.split(".")
+        for i in range(len(parts)):
+            wildcard = ".".join(parts[: i + 1]) + ".*"
+            if wildcard in _NAMESPACE_SIGNATURES:
+                matching.append(wildcard)
+
+        return matching
 
     @staticmethod
     def register_subscriber(
@@ -50,12 +108,31 @@ class Broker(ModuleType):
         Register a callback function to a namespace.
 
         Args:
-            namespace (str): Event namespace (e.g., 'system.io.file_open' or
-                'system.*').
-            callback (Callable): Function to call when events are emitted.
+            namespace (str): Event namespace (e.g., 'system.io.file_open' or 'system.*').
+            callback (CALLBACK): Function to call when events are emitted.
             priority (int): The priority used for callback execution order.
                 Higher priorities are ran before lower priorities.
+        Raises:
+            ValueError: If callback signature doesn't match existing subscribers.
         """
+        callback_params = Broker._get_callback_params(callback)
+
+        # If this is the first subscriber for this namespace, store signature
+        if namespace not in _NAMESPACE_SIGNATURES:
+            _NAMESPACE_SIGNATURES[namespace] = callback_params
+        else:
+            existing_params = _NAMESPACE_SIGNATURES[namespace]
+
+            # If either accepts **kwargs, they're compatible
+            if existing_params is None or callback_params is None:
+                _NAMESPACE_SIGNATURES[namespace] = None
+            elif existing_params != callback_params:
+                raise ValueError(
+                    f"Callback parameter mismatch for namespace '{namespace}'. "
+                    f"Expected parameters: {sorted(existing_params)}, "
+                    f"but got: {sorted(callback_params)}"
+                )
+
         if namespace not in _SUBSCRIBERS:
             _SUBSCRIBERS[namespace] = []
         _SUBSCRIBERS[namespace].append(Subscriber(callback, priority))
@@ -67,7 +144,7 @@ class Broker(ModuleType):
 
         Args:
             namespace (str): Event namespace.
-            callback (Callable): Function to remove.
+            callback (CALLBACK): Function to remove.
         """
         if namespace in _SUBSCRIBERS:
             _SUBSCRIBERS[namespace] = [
@@ -75,6 +152,9 @@ class Broker(ModuleType):
             ]
             if not _SUBSCRIBERS[namespace]:
                 del _SUBSCRIBERS[namespace]
+                # Clean up signature tracking if no subscribers left
+                if namespace in _NAMESPACE_SIGNATURES:
+                    del _NAMESPACE_SIGNATURES[namespace]
 
     def emit(self, namespace: str, **kwargs: Any) -> None:
         """
@@ -82,8 +162,30 @@ class Broker(ModuleType):
 
         Args:
             namespace (str): Event namespace (e.g., 'system.io.file_open').
-            **kwargs: Arguments to pass to subscriber callbacks.
+            **kwargs (Any): Arguments to pass to subscriber callbacks.
+        Raises:
+            ValueError: If provided kwargs don't match subscriber signatures.
         """
+        provided_args = set(kwargs.keys())
+
+        matching_namespaces = []
+        for sub_namespace in _SUBSCRIBERS.keys():
+            if self._matches(namespace, sub_namespace):
+                matching_namespaces.append(sub_namespace)
+
+        for sub_namespace in matching_namespaces:
+            expected_params = _NAMESPACE_SIGNATURES.get(sub_namespace)
+
+            if expected_params is None:  # **kwargs not validated
+                continue
+
+            if provided_args != expected_params:
+                raise ValueError(
+                    f"Argument mismatch when emitting to '{namespace}'. "
+                    f"Subscribers in '{sub_namespace}' expect: {sorted(expected_params)}, "
+                    f"but got: {sorted(provided_args)}"
+                )
+
         for sub_namespace, subscribers in _SUBSCRIBERS.items():
             if self._matches(namespace, sub_namespace):
                 # Sort by priority (higher priority first)
@@ -102,7 +204,6 @@ class Broker(ModuleType):
             event_namespace (str): The namespace where event was emitted.
             subscriber_namespace (str): The namespace a subscriber registered
                 for.
-
         Returns:
             bool: True if subscriber should receive the event.
         """
@@ -117,7 +218,7 @@ class Broker(ModuleType):
         return False
 
 
-# This is here to protect the _subscribers dict, creating a protective closure.
+# This is here to protect the _SUBSCRIBERS dict, creating a protective closure.
 custom_module = Broker(sys.modules[__name__].__name__)
 sys.modules[__name__] = custom_module
 
