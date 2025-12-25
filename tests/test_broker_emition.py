@@ -3,6 +3,17 @@ from typing import Any
 import broker
 
 
+# -----------------------------------------------------------------------------
+# Many of the tests are attempting to verify data within the broker, but the
+# broker uses a protective closure to make the subscriber table difficult to
+# access.
+
+# The work-around is to create functions that append results to a local table,
+# list, or other collection and validate that the collection contains the
+# expected items.
+# -----------------------------------------------------------------------------
+
+
 def test_wildcard_parent_receives_child_events() -> None:
     """
     Test that a parent wildcard subscriber receives events from child

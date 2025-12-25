@@ -44,8 +44,13 @@ class Subscriber(object):
     """A subscriber with a callback and priority."""
 
     callback: CALLBACK
+    """The end point that data is forwarded to. i.e. what gets ran."""
+
     priority: int
+    """Where in the execution order the callback should take place."""
+
     is_async: bool
+    """If the item is asynchronous or not..."""
 
 
 _SUBSCRIBERS: dict[str, list[Subscriber]] = {}
@@ -60,8 +65,51 @@ _NAMESPACE_SIGNATURES: dict[str, Optional[set[str]]] = {}
 """Track the expected keyword arguments for each namespace."""
 
 
+def _make_subscribe_decorator(broker_module: "Broker") -> Callable:
+    """
+    Create a subscribe decorator with access to the broker module.
+
+    This exists as a function accepting the broker module as an argument so the
+    function can call register_subscriber() on the broker without referring to
+    it using a python namespace and thus creating a circular reference.
+    """
+
+    def subscribe_(namespace: str, priority: int = 0) -> CALLBACK:
+        """
+        Decorator to register a function or static method as a subscriber.
+
+        To register an instance referencing class method (one using 'self'),
+        use broker.register_subscriber('source', 'event_name', self.method).
+
+        Usage:
+            @subscribe('system.file.io', 5)
+            def on_file_open(filepath: str) -> None:
+                print(f'File opened: {filepath}')
+        Args:
+            namespace (str): The event namespace to subscribe to.
+            priority (int): The execution priority. Defaults to 0.
+        Returns:
+            Callable: Decorator function that registers the subscriber.
+        """
+
+        def decorator(func: CALLBACK) -> CALLBACK:
+            broker_module.register_subscriber(namespace, func, priority)
+            return func
+
+        return decorator
+
+    return subscribe_
+
+
 class Broker(ModuleType):
-    """Message broker system with hierarchical namespaces."""
+    """
+    Primary event coordinator.
+    Supports hierarchical namespace through dot notation, with * for wildcards.
+
+    Supports both synchronous and asynchronous subscribers.
+    Use emit() for fire-and-forget behavior.
+    Use emit_async() to await all subscribers.
+    """
 
     # -----Runtime Closures-----
     CALLBACK = CALLBACK
@@ -70,6 +118,7 @@ class Broker(ModuleType):
 
     def __init__(self, name: str) -> None:
         super().__init__(name)
+        self.subscribe = _make_subscribe_decorator(self)
 
     @staticmethod
     def clear() -> None:
@@ -219,6 +268,12 @@ class Broker(ModuleType):
         """
         Emit an event to all matching synchronous subscribers.
 
+        Synchronous subscribers are called immediately in priority order.
+        Asynchronous subscribers are NOT called - they are skipped entirely.
+
+        Use emit_async() if you need to call async subscribers or await their
+        completion.
+
         Args:
             namespace (str): Event namespace (e.g., 'system.io.file_open').
             **kwargs (Any): Arguments to pass to subscriber callbacks.
@@ -226,7 +281,7 @@ class Broker(ModuleType):
             EmitArgumentError: If provided kwargs don't match subscriber signatures.
         Note:
             This method only calls synchronous callbacks. Async callbacks are
-                skipped. Use emit_async() to call async callbacks.
+            skipped. Use emit_async() to call async callbacks.
         """
         self._validate_emit_args(namespace, kwargs)
 
@@ -241,7 +296,14 @@ class Broker(ModuleType):
 
     async def emit_async(self, namespace: str, **kwargs: Any) -> None:
         """
-        Emit an event to all matching subscribers (both sync and async).
+        Asynchronously emit an event to all matching subscribers.
+
+        Both synchronous and asynchronous subscribers are called in priority order.
+        - Synchronous subscribers are executed immediately.
+        - Asynchronous subscribers are awaited sequentially.
+
+        This method must be awaited. Execution blocks until all subscribers complete.
+        Use emit() for fire-and-forget behavior with sync-only subscribers.
 
         Args:
             namespace (str): Event namespace (e.g., 'system.io.file_open').
@@ -251,7 +313,7 @@ class Broker(ModuleType):
                 signatures.
         Note:
             This method calls both sync and async callbacks. Sync callbacks are
-                executed normally, async callbacks are awaited.
+            executed normally, async callbacks are awaited.
         """
         self._validate_emit_args(namespace, kwargs)
 
@@ -304,28 +366,28 @@ sys.modules[__name__] = custom_module
 
 def clear() -> None:
     """See docstring above..."""
-    pass
 
 
 # noinspection PyUnusedLocal
 def register_subscriber(namespace: str, callback: CALLBACK, priority: int = 0) -> None:
     """See docstring above..."""
-    pass
 
 
 # noinspection PyUnusedLocal
 def unregister_subscriber(namespace: str, callback: CALLBACK) -> None:
     """See docstring above..."""
-    pass
 
 
 # noinspection PyUnusedLocal
 def emit(namespace: str, **kwargs: Any) -> None:
     """See docstring above..."""
-    pass
 
 
 # noinspection PyUnusedLocal
 async def emit_async(namespace: str, **kwargs: Any) -> None:
     """See docstring above..."""
-    pass
+
+
+# noinspection PyUnusedLocal
+def subscribe(namespace: str, priority: int = 0) -> CALLBACK:
+    """See docstring above..."""
