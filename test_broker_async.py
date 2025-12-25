@@ -1,6 +1,8 @@
 import pytest
 
 import broker
+from broker import SignatureMismatchError
+from broker import EmitArgumentError
 
 
 def test_matching_signatures_allowed() -> None:
@@ -37,7 +39,7 @@ def test_mismatched_signatures_rejected() -> None:
 
     broker.register_subscriber(namespace, callback1)
 
-    with pytest.raises(ValueError, match="parameter mismatch"):
+    with pytest.raises(SignatureMismatchError, match="parameter mismatch"):
         broker.register_subscriber(namespace, callback2)
 
 
@@ -72,7 +74,7 @@ def test_emit_validates_arguments() -> None:
     broker.emit(namespace, filename="test.txt", size=1024)
 
     # Wrong args should raise
-    with pytest.raises(ValueError, match="Argument mismatch"):
+    with pytest.raises(EmitArgumentError, match="Argument mismatch"):
         broker.emit(namespace, filename="test.txt", mode="w")
 
 
@@ -88,7 +90,7 @@ def test_wildcard_subscription_validates() -> None:
     broker.emit("file.save", filename="test.txt", size=1024)
 
     # Mismatched args should raise
-    with pytest.raises(ValueError, match="Argument mismatch"):
+    with pytest.raises(EmitArgumentError, match="Argument mismatch"):
         broker.emit("file.delete", path="test.txt")
 
 
@@ -107,7 +109,7 @@ def test_specific_and_wildcard_must_match() -> None:
     broker.register_subscriber("file.save", specific_callback)
     broker.register_subscriber("file.*", wildcard_callback)
 
-    with pytest.raises(ValueError, match="Argument mismatch"):
+    with pytest.raises(EmitArgumentError, match="Argument mismatch"):
         broker.emit("file.save", filename="test.txt", size=1024)
 
 

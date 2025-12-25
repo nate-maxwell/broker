@@ -10,6 +10,18 @@ from typing import Coroutine
 from types import ModuleType
 
 
+class SignatureMismatchError(Exception):
+    """Raised when callback signatures don't match for a namespace."""
+
+    pass
+
+
+class EmitArgumentError(Exception):
+    """Raised when emit arguments don't match subscriber signatures."""
+
+    pass
+
+
 CALLBACK = Union[Callable[..., Any], Callable[..., Coroutine[Any, Any, Any]]]
 """
 The callback end point that event info is forwarded to. These are the actions
@@ -31,7 +43,8 @@ class Subscriber(object):
 
 
 _SUBSCRIBERS: dict[str, list[Subscriber]] = {}
-"""The broker's record of each namespace to subscribers.
+"""
+The broker's record of each namespace to subscribers.
 
 This is kept outside of the replaced module class to create a protected
 closure around the event topic:subscriber structure.
@@ -44,7 +57,10 @@ _NAMESPACE_SIGNATURES: dict[str, Optional[set[str]]] = {}
 class Broker(ModuleType):
     """Message broker system with hierarchical namespaces."""
 
+    # -----Runtime Closures-----
     CALLBACK = CALLBACK
+    SignatureMismatchError = SignatureMismatchError
+    EmitArgumentError = EmitArgumentError
 
     def __init__(self, name: str) -> None:
         super().__init__(name)
@@ -56,11 +72,11 @@ class Broker(ModuleType):
 
     @staticmethod
     def _get_callback_params(callback: CALLBACK) -> Union[set[str], None]:
-        """Extract parameter names from a callback function.
+        """
+        Extract parameter names from a callback function.
 
         Args:
             callback (CALLBACK): The callback function to inspect.
-
         Returns:
             Union[set[str], None]: Set of parameter names, or None if callback
                 accepts **kwargs.
@@ -117,7 +133,8 @@ class Broker(ModuleType):
             priority (int): The priority used for callback execution order.
                 Higher priorities are ran before lower priorities.
         Raises:
-            ValueError: If callback signature doesn't match existing subscribers.
+            SignatureMismatchError: If callback signature doesn't match
+                existing subscribers.
         """
         callback_params = Broker._get_callback_params(callback)
         is_async = asyncio.iscoroutinefunction(callback)
@@ -132,7 +149,7 @@ class Broker(ModuleType):
             if existing_params is None or callback_params is None:
                 _NAMESPACE_SIGNATURES[namespace] = None
             elif existing_params != callback_params:
-                raise ValueError(
+                raise SignatureMismatchError(
                     f"Callback parameter mismatch for namespace '{namespace}'. "
                     f"Expected parameters: {sorted(existing_params)}, "
                     f"but got: {sorted(callback_params)}"
@@ -170,7 +187,7 @@ class Broker(ModuleType):
             namespace (str): The namespace being emitted to.
             kwargs (dict[str, Any]): The keyword arguments being emitted.
         Raises:
-            ValueError: If provided kwargs don't match subscriber signatures.
+            EmitArgumentError: If provided kwargs don't match subscriber signatures.
         """
         provided_args = set(kwargs.keys())
 
@@ -186,25 +203,24 @@ class Broker(ModuleType):
                 continue
 
             if provided_args != expected_params:
-                raise ValueError(
+                raise EmitArgumentError(
                     f"Argument mismatch when emitting to '{namespace}'. "
                     f"Subscribers in '{sub_namespace}' expect: {sorted(expected_params)}, "
                     f"but got: {sorted(provided_args)}"
                 )
 
     def emit(self, namespace: str, **kwargs: Any) -> None:
-        """Emit an event to all matching synchronous subscribers.
+        """
+        Emit an event to all matching synchronous subscribers.
 
         Args:
             namespace (str): Event namespace (e.g., 'system.io.file_open').
             **kwargs (Any): Arguments to pass to subscriber callbacks.
-
         Raises:
-            ValueError: If provided kwargs don't match subscriber signatures.
-
+            EmitArgumentError: If provided kwargs don't match subscriber signatures.
         Note:
-            This method only calls synchronous callbacks. Async callbacks are skipped.
-            Use emit_async() to call async callbacks.
+            This method only calls synchronous callbacks. Async callbacks are
+                skipped. Use emit_async() to call async callbacks.
         """
         self._validate_emit_args(namespace, kwargs)
 
@@ -225,10 +241,11 @@ class Broker(ModuleType):
             namespace (str): Event namespace (e.g., 'system.io.file_open').
             **kwargs (Any): Arguments to pass to subscriber callbacks.
         Raises:
-            ValueError: If provided kwargs don't match subscriber signatures.
+            EmitArgumentError: If provided kwargs don't match subscriber
+                signatures.
         Note:
             This method calls both sync and async callbacks. Sync callbacks are
-            executed normally, async callbacks are awaited.
+                executed normally, async callbacks are awaited.
         """
         self._validate_emit_args(namespace, kwargs)
 
