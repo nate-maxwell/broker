@@ -1,3 +1,5 @@
+from typing import Any
+
 import pytest
 
 import broker
@@ -19,7 +21,7 @@ def test_subscriber_registration() -> None:
     callback_invoked: list = []
 
     # noinspection PyUnusedLocal
-    def test_callback(**kwargs: object) -> None:
+    def test_callback(**kwargs: Any) -> None:
         callback_invoked.append(True)
 
     broker.register_subscriber(namespace, test_callback)
@@ -37,7 +39,7 @@ def test_subscriber_unregistration() -> None:
     callback_invoked: list[bool] = []
 
     # noinspection PyUnusedLocal
-    def test_callback(**kwargs: object) -> None:
+    def test_callback(**kwargs: Any) -> None:
         callback_invoked.append(True)
 
     broker.register_subscriber(namespace, test_callback)
@@ -59,11 +61,11 @@ def test_wildcard_parent_receives_child_events() -> None:
     child_invoked: list[bool] = []
 
     # noinspection PyUnusedLocal
-    def parent_callback(**kwargs: object) -> None:
+    def parent_callback(**kwargs: Any) -> None:
         parent_invoked.append(True)
 
     # noinspection PyUnusedLocal
-    def child_callback(**kwargs: object) -> None:
+    def child_callback(**kwargs: Any) -> None:
         child_invoked.append(True)
 
     broker.register_subscriber("test.*", parent_callback)
@@ -81,8 +83,10 @@ def test_arguments_passed_to_callback() -> None:
     namespace = "system.io.file_save"
     received_kwargs: dict[str, object] = {}
 
-    def test_callback(**kwargs: object) -> None:
-        received_kwargs.update(kwargs)
+    def test_callback(filename: str, size: int, success: bool) -> None:
+        received_kwargs["filename"] = filename
+        received_kwargs["size"] = size
+        received_kwargs["success"] = success
 
     broker.register_subscriber(namespace, test_callback)
     broker.emit(namespace, filename="test.txt", size=1024, success=True)
@@ -100,15 +104,15 @@ def test_callbacks_execute_in_priority_order() -> None:
     execution_order: list[str] = []
 
     # noinspection PyUnusedLocal
-    def low_priority_callback(**kwargs: object) -> None:
+    def low_priority_callback(**kwargs: Any) -> None:
         execution_order.append("low")
 
     # noinspection PyUnusedLocal
-    def medium_priority_callback(**kwargs: object) -> None:
+    def medium_priority_callback(**kwargs: Any) -> None:
         execution_order.append("medium")
 
     # noinspection PyUnusedLocal
-    def high_priority_callback(**kwargs: object) -> None:
+    def high_priority_callback(**kwargs: Any) -> None:
         execution_order.append("high")
 
     broker.register_subscriber(namespace, medium_priority_callback, priority=5)
