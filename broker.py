@@ -48,7 +48,8 @@ class Subscriber(object):
     weak_callback: Union[weakref.ref[Any], weakref.WeakMethod]
     """
     The end point that data is forwarded to. i.e. what gets ran.
-    This is a weak reference so the callback can be garbage collected.
+    This is a weak reference so the callback isn't kept alive by the broker.
+    Broker can notify when item is garbage collected.
     """
 
     priority: int
