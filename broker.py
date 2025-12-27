@@ -209,7 +209,7 @@ class Broker(ModuleType):
         }
 
     def _on_callback_collected(self, namespace: str) -> None:
-        """Called when a callback is garbage collected."""
+        """Called when a subscriber is garbage collected."""
         if namespace in _SUBSCRIBERS:
             _SUBSCRIBERS[namespace] = [
                 sub for sub in _SUBSCRIBERS[namespace] if sub.callback is not None
