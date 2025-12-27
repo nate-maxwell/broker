@@ -1,7 +1,7 @@
 """
 # Primary Event Broker
 
-Herein is the event broker system itself as a module function to create a
+Herein is the event broker system itself as a module class to create a
 protective closure around the subscriber namespace table.
 
 Function stubs exist at the bottom of the file for static type checkers to
