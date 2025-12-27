@@ -1,5 +1,10 @@
 [build-system]
-requires = ["setuptools", "setuptools-scm", "pytest"]
+requires = [
+    "setuptools",
+    "setuptools-scm",
+    "pytest",
+    "pytest-asyncio"
+]
 
 [tool.setuptools]
 packages = ["broker"]
@@ -19,7 +24,8 @@ classifiers = [
 ]
 dependencies = [
     'importlib-metadata; python_version<"3.10"',
-    "pytest"
+    "pytest",
+    "pytest-asyncio"
 ]
 version = "0.1.0"
 

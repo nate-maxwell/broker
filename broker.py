@@ -8,16 +8,17 @@ Function stubs exist at the bottom of the file for static type checkers to
 validate correct calls during CI/CD.
 """
 
-import sys
-import inspect
 import asyncio
+import inspect
+import sys
+import weakref
 from dataclasses import dataclass
+from types import ModuleType
 from typing import Any
 from typing import Callable
-from typing import Union
-from typing import Optional
 from typing import Coroutine
-from types import ModuleType
+from typing import Optional
+from typing import Union
 
 
 class SignatureMismatchError(Exception):
@@ -43,14 +44,25 @@ If you want data back, create an event going the opposite direction.
 class Subscriber(object):
     """A subscriber with a callback and priority."""
 
-    callback: CALLBACK
-    """The end point that data is forwarded to. i.e. what gets ran."""
+    weak_callback: Union[weakref.ref[Any], weakref.WeakMethod]
+    """
+    The end point that data is forwarded to. i.e. what gets ran.
+    This is a weak reference so the callback can be garbage collected.
+    """
 
     priority: int
     """Where in the execution order the callback should take place."""
 
     is_async: bool
     """If the item is asynchronous or not..."""
+
+    namespace: str
+    """The namespace the subscriber is listening to."""
+
+    @property
+    def callback(self) -> Optional[CALLBACK]:
+        """Get the live callback, or None if collected."""
+        return self.weak_callback()
 
 
 _SUBSCRIBERS: dict[str, list[Subscriber]] = {}
@@ -67,11 +79,27 @@ _NAMESPACE_SIGNATURES: dict[str, Optional[set[str]]] = {}
 _NOTIFY_NAMESPACE_ROOT = "broker.notify."
 BROKER_ON_SUBSCRIBER_ADDED = f"{_NOTIFY_NAMESPACE_ROOT}subscriber.added"
 BROKER_ON_SUBSCRIBER_REMOVED = f"{_NOTIFY_NAMESPACE_ROOT}subscriber.removed"
+BROKER_ON_SUBSCRIBER_COLLECTED = f"{_NOTIFY_NAMESPACE_ROOT}subscriber.collected"
 BROKER_ON_EMIT = f"{_NOTIFY_NAMESPACE_ROOT}emit.sync"
 BROKER_ON_EMIT_ASYNC = f"{_NOTIFY_NAMESPACE_ROOT}emit.async"
 BROKER_ON_EMIT_ALL = f"{_NOTIFY_NAMESPACE_ROOT}emit.all"
 BROKER_ON_NAMESPACE_CREATED = f"{_NOTIFY_NAMESPACE_ROOT}namespace.created"
 BROKER_ON_NAMESPACE_DELETED = f"{_NOTIFY_NAMESPACE_ROOT}namespace.deleted"
+
+
+def _make_weak_ref(
+    callback: CALLBACK, namespace: str, on_collected_callback: Callable[[str], None]
+) -> Union[weakref.ref[Any], weakref.WeakMethod]:
+    """Create appropriate weak reference for any callback type."""
+
+    def cleanup(_: Union[weakref.ref[Any], weakref.WeakMethod]) -> None:
+        # Arg needed to add for weakref creation.
+        on_collected_callback(namespace)
+
+    if hasattr(callback, "__self__"):
+        return weakref.WeakMethod(callback, cleanup)
+    else:
+        return weakref.ref(callback, cleanup)
 
 
 def _make_subscribe_decorator(broker_module: "Broker") -> Callable:
@@ -124,8 +152,10 @@ class Broker(ModuleType):
     CALLBACK = CALLBACK
     SignatureMismatchError = SignatureMismatchError
     EmitArgumentError = EmitArgumentError
+
     BROKER_ON_SUBSCRIBER_ADDED = BROKER_ON_SUBSCRIBER_ADDED
     BROKER_ON_SUBSCRIBER_REMOVED = BROKER_ON_SUBSCRIBER_REMOVED
+    BROKER_ON_SUBSCRIBER_COLLECTED = BROKER_ON_SUBSCRIBER_COLLECTED
     BROKER_ON_EMIT = BROKER_ON_EMIT
     BROKER_ON_EMIT_ASYNC = BROKER_ON_EMIT_ASYNC
     BROKER_ON_EMIT_ALL = BROKER_ON_EMIT_ALL
@@ -140,6 +170,7 @@ class Broker(ModuleType):
         self.notify_on_all: bool = False
         self.notify_on_subscribe: bool = False
         self.notify_on_unsubscribe: bool = False
+        self.notify_on_collected: bool = False
         self.notify_on_emit: bool = False
         self.notify_on_emit_async: bool = False
         self.notify_on_emit_all: bool = False
@@ -175,10 +206,23 @@ class Broker(ModuleType):
             if param.kind != inspect.Parameter.VAR_POSITIONAL  # exclude *args
         }
 
+    def _on_callback_collected(self, namespace: str) -> None:
+        """Called when a callback is garbage collected."""
+        if namespace in _SUBSCRIBERS:
+            _SUBSCRIBERS[namespace] = [
+                sub for sub in _SUBSCRIBERS[namespace] if sub.callback is not None
+            ]
+
+        if self.notify_on_collected and not namespace.startswith(
+            _NOTIFY_NAMESPACE_ROOT
+        ):
+            self.emit(namespace=BROKER_ON_SUBSCRIBER_COLLECTED, using=namespace)
+
     def register_subscriber(
         self, namespace: str, callback: CALLBACK, priority: int = 0
     ) -> None:
-        """Register a callback function to a namespace.
+        """
+        Register a callback function to a namespace.
 
         Args:
             namespace (str): Event namespace
@@ -196,6 +240,13 @@ class Broker(ModuleType):
         """
         callback_params = Broker._get_callback_params(callback)
         is_async = asyncio.iscoroutinefunction(callback)
+        weak_callback = _make_weak_ref(callback, namespace, self._on_callback_collected)
+        subscriber = Subscriber(
+            weak_callback=weak_callback,
+            priority=priority,
+            is_async=is_async,
+            namespace=namespace,
+        )
 
         # If this is the first subscriber for this namespace, store signature
         if namespace not in _NAMESPACE_SIGNATURES:
@@ -221,7 +272,7 @@ class Broker(ModuleType):
             ):
                 self.emit(namespace=BROKER_ON_NAMESPACE_CREATED, using=namespace)
 
-        _SUBSCRIBERS[namespace].append(Subscriber(callback, priority, is_async))
+        _SUBSCRIBERS[namespace].append(subscriber)
         if (
             not namespace.startswith(_NOTIFY_NAMESPACE_ROOT)
             and self.notify_on_subscribe
@@ -400,6 +451,7 @@ class Broker(ModuleType):
         self,
         on_subscribe: bool = False,
         on_unsubscribe: bool = False,
+        on_collected: bool = False,
         on_emit: bool = False,
         on_emit_async: bool = False,
         on_emit_all: bool = False,
@@ -413,14 +465,16 @@ class Broker(ModuleType):
         Args:
             on_subscribe:    	if True, get notified whenever register_subscriber() is called;
             on_unsubscribe:  	if True, get notified whenever unregister_subscriber() is called;
+            on_collected:       if True, get notified whenever a subscriber has been garbage collected;
             on_emit:			if True, get notified whenever emit() is called;
-            on_emit_async:		if True, get notified when emit_async() is called;
-            on_emit_all:		if True, get notified when emit() or emit_async() is called.
+            on_emit_async:		if True, get notified whenever emit_async() is called;
+            on_emit_all:		if True, get notified whenever emit() or emit_async() is called.
             on_new_namespace: 	if True, get notified whenever a new namespace is created;
             on_del_namespace:	if True, get notified whenever a namespace is "deleted";
         """
         self.notify_on_subscribe = on_subscribe
         self.notify_on_unsubscribe = on_unsubscribe
+        self.notify_on_collected = on_collected
         self.notify_on_emit = on_emit
         self.notify_on_emit_async = on_emit_async
         self.notify_on_emit_all = on_emit_all
@@ -474,6 +528,7 @@ def subscribe(namespace: str, priority: int = 0) -> CALLBACK:
 def set_flag_sates(
     on_subscribe: bool = False,
     on_unsubscribe: bool = False,
+    on_collected: bool = False,
     on_emit: bool = False,
     on_emit_async: bool = False,
     on_emit_all: bool = False,
