@@ -192,7 +192,7 @@ class Broker(ModuleType):
         _NAMESPACE_SIGNATURES.clear()
 
     @staticmethod
-    def _get_callback_params(callback: CALLBACK) -> Union[set[str], None]:
+    def _get_callback_params(callback: "CALLBACK") -> Union[set[str], None]:
         """
         Extract parameter names from a callback function.
 
@@ -228,7 +228,7 @@ class Broker(ModuleType):
             self.emit(namespace=BROKER_ON_SUBSCRIBER_COLLECTED, using=namespace)
 
     def register_subscriber(
-        self, namespace: str, callback: CALLBACK, priority: int = 0
+        self, namespace: str, callback: "CALLBACK", priority: int = 0
     ) -> None:
         """
         Register a callback function to a namespace.
@@ -288,7 +288,7 @@ class Broker(ModuleType):
         ):
             self.emit(namespace=BROKER_ON_SUBSCRIBER_ADDED, using=namespace)
 
-    def unregister_subscriber(self, namespace: str, callback: CALLBACK) -> None:
+    def unregister_subscriber(self, namespace: str, callback: "CALLBACK") -> None:
         """
         Remove a callback from a namespace.
 
