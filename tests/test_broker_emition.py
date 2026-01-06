@@ -1,3 +1,8 @@
+"""
+Unit test to ensure messages are emitted through the broker and successfully
+picked up by the broker and delivered to the correct namespaces and in order.
+"""
+
 from typing import Any
 
 import broker

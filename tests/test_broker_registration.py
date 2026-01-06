@@ -1,3 +1,5 @@
+"""Unit test to ensure callbacks are properly registered and registered."""
+
 import asyncio
 from typing import Any
 

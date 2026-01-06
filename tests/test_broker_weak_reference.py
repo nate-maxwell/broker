@@ -1,6 +1,10 @@
 """
 Unit tests for weak reference functionality and garbage collection
 notifications.
+
+When a callback is collected by the GC or deleted by user, the broker should
+not keep the object alive by maintaining a reference and should notify invested
+systems that the item was culled.
 """
 
 import gc

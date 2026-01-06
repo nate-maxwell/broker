@@ -1,3 +1,13 @@
+"""
+Unit test validating observable broker events.
+
+Observable broker events are no different from a regular message, they just use
+a pre-existing namespace.
+
+These tests are simplistic. They primarily subscribe to the pre-existing
+namespace and check that a message was received.
+"""
+
 import broker
 
 
