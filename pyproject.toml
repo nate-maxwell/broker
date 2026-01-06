@@ -21,7 +21,7 @@ dependencies = [
     "pytest",
     "pytest-asyncio"
 ]
-version = "01.0.0"
+version = "1.0.0"
 
 [project.urls]
 Homepage = "https://github.com/nate-maxwell/broker"
