@@ -5,8 +5,9 @@ Herein is the event broker system itself as a module class to create a
 protective closure around the subscriber namespace table.
 
 Function stubs exist at the bottom of the file for static type checkers to
-validate correct calls during CI/CD.
+validate correct calls.
 """
+
 
 import asyncio
 import inspect
@@ -22,8 +23,8 @@ from typing import Optional
 from typing import Union
 
 
-version_major = 0
-version_minor = 1
+version_major = 1
+version_minor = 0
 version_patch = 0
 
 __version__ = f"{version_major}.{version_minor}.{version_patch}"
@@ -157,7 +158,9 @@ class Broker(ModuleType):
     Use emit_async() to await all subscribers.
     """
 
-    # -----Runtime Closures-----
+    # -----Accessible Runtime Closures-----
+    __version__ = __version__
+
     CALLBACK = CALLBACK
     SignatureMismatchError = SignatureMismatchError
     EmitArgumentError = EmitArgumentError
@@ -230,23 +233,6 @@ class Broker(ModuleType):
     def register_subscriber(
         self, namespace: str, callback: "CALLBACK", priority: int = 0
     ) -> None:
-        """
-        Register a callback function to a namespace.
-
-        Args:
-            namespace (str): Event namespace
-                (e.g., 'system.io.file_open' or 'system.*').
-            callback (CALLBACK): Function to call when events are emitted. Can
-                be sync or async.
-            priority (int): The priority used for callback execution order.
-                Higher priorities are ran before lower priorities.
-        Raises:
-            SignatureMismatchError: If callback signature doesn't match
-                existing subscribers.
-        Notes:
-            Emits a notify event when a namespace is created and when a
-            subscriber is registered. Notify emits the used namespace.
-        """
         callback_params = Broker._get_callback_params(callback)
         is_async = asyncio.iscoroutinefunction(callback)
         weak_callback = _make_weak_ref(callback, namespace, self._on_callback_collected)
@@ -289,17 +275,6 @@ class Broker(ModuleType):
             self.emit(namespace=BROKER_ON_SUBSCRIBER_ADDED, using=namespace)
 
     def unregister_subscriber(self, namespace: str, callback: "CALLBACK") -> None:
-        """
-        Remove a callback from a namespace.
-
-        Args:
-            namespace (str): Event namespace.
-            callback (CALLBACK): Function to remove.
-        Notes:
-            Emits a notify event when subscriber is unregistered and when a
-            namespace is removed from consolidation. Notify emits the used
-            namespace.
-        """
         if namespace in _SUBSCRIBERS:
             _SUBSCRIBERS[namespace] = [
                 sub for sub in _SUBSCRIBERS[namespace] if sub.callback != callback
@@ -355,26 +330,6 @@ class Broker(ModuleType):
                 )
 
     def emit(self, namespace: str, **kwargs: Any) -> None:
-        """
-        Emit an event to all matching synchronous subscribers.
-
-        Synchronous subscribers are called immediately in priority order.
-        Asynchronous subscribers are NOT called - they are skipped entirely.
-
-        Use emit_async() if you need to call async subscribers or await their
-        completion.
-
-        Args:
-            namespace (str): Event namespace (e.g., 'system.io.file_open').
-            **kwargs (Any): Arguments to pass to subscriber callbacks.
-        Raises:
-            EmitArgumentError: If provided kwargs don't match subscriber signatures.
-        Note:
-            -This method only calls synchronous callbacks. Async callbacks are
-            skipped. Use emit_async() to call async callbacks.
-            -Emits a notify event after args have been sent to subscribers.
-            Notify emits the used namespace.
-        """
         self._validate_emit_args(namespace, kwargs)
 
         for sub_namespace, subscribers in _SUBSCRIBERS.items():
@@ -392,28 +347,6 @@ class Broker(ModuleType):
             self.emit(namespace=BROKER_ON_EMIT, using=namespace)
 
     async def emit_async(self, namespace: str, **kwargs: Any) -> None:
-        """
-        Asynchronously emit an event to all matching subscribers.
-
-        Both synchronous and asynchronous subscribers are called in priority order.
-        - Synchronous subscribers are executed immediately.
-        - Asynchronous subscribers are awaited sequentially.
-
-        This method must be awaited. Execution blocks until all subscribers complete.
-        Use emit() for fire-and-forget behavior with sync-only subscribers.
-
-        Args:
-            namespace (str): Event namespace (e.g., 'system.io.file_open').
-            **kwargs (Any): Arguments to pass to subscriber callbacks.
-        Raises:
-            EmitArgumentError: If provided kwargs don't match subscriber
-                signatures.
-        Note:
-            -This method calls both sync and async callbacks. Sync callbacks are
-            executed normally, async callbacks are awaited.
-            -Emits a notify event after args have been sent to subscribers.
-            Notify emits the used namespace.
-        """
         self._validate_emit_args(namespace, kwargs)
 
         for sub_namespace, subscribers in _SUBSCRIBERS.items():
@@ -467,20 +400,6 @@ class Broker(ModuleType):
         on_new_namespace: bool = False,
         on_del_namespace: bool = False,
     ) -> None:
-        """
-        Set the notification flags on or off for each type of broker activity.
-        The broker can be configured through any of the following:
-
-        Args:
-            on_subscribe:    	if True, get notified whenever register_subscriber() is called;
-            on_unsubscribe:  	if True, get notified whenever unregister_subscriber() is called;
-            on_collected:       if True, get notified whenever a subscriber has been garbage collected;
-            on_emit:			if True, get notified whenever emit() is called;
-            on_emit_async:		if True, get notified whenever emit_async() is called;
-            on_emit_all:		if True, get notified whenever emit() or emit_async() is called.
-            on_new_namespace: 	if True, get notified whenever a new namespace is created;
-            on_del_namespace:	if True, get notified whenever a namespace is "deleted";
-        """
         self.notify_on_subscribe = on_subscribe
         self.notify_on_unsubscribe = on_unsubscribe
         self.notify_on_collected = on_collected
@@ -547,32 +466,113 @@ sys.modules[__name__] = custom_module
 
 
 def clear() -> None:
-    """See docstring above..."""
+    """Clear the subscriber and namespace table."""
 
 
 # noinspection PyUnusedLocal
 def register_subscriber(namespace: str, callback: CALLBACK, priority: int = 0) -> None:
-    """See docstring above..."""
+    """
+    Register a callback function to a namespace.
+
+    Args:
+        namespace (str): Event namespace
+            (e.g., 'system.io.file_open' or 'system.*').
+        callback (CALLBACK): Function to call when events are emitted. Can
+            be sync or async.
+        priority (int): The priority used for callback execution order.
+            Higher priorities are ran before lower priorities.
+    Raises:
+        SignatureMismatchError: If callback signature doesn't match
+            existing subscribers.
+    Notes:
+        Emits a notify event when a namespace is created and when a
+        subscriber is registered. Notify emits the used namespace.
+    """
 
 
 # noinspection PyUnusedLocal
 def unregister_subscriber(namespace: str, callback: CALLBACK) -> None:
-    """See docstring above..."""
+    """
+    Remove a callback from a namespace.
+
+    Args:
+        namespace (str): Event namespace.
+        callback (CALLBACK): Function to remove.
+    Notes:
+        Emits a notify event when subscriber is unregistered and when a
+        namespace is removed from consolidation. Notify emits the used
+        namespace.
+    """
 
 
 # noinspection PyUnusedLocal
 def emit(namespace: str, **kwargs: Any) -> None:
-    """See docstring above..."""
+    """
+    Emit an event to all matching synchronous subscribers.
+
+    Synchronous subscribers are called immediately in priority order.
+    Asynchronous subscribers are NOT called - they are skipped entirely.
+
+    Use emit_async() if you need to call async subscribers or await their
+    completion.
+
+    Args:
+        namespace (str): Event namespace (e.g., 'system.io.file_open').
+        **kwargs (Any): Arguments to pass to subscriber callbacks.
+    Raises:
+        EmitArgumentError: If provided kwargs don't match subscriber signatures.
+    Note:
+        -This method only calls synchronous callbacks. Async callbacks are
+        skipped. Use emit_async() to call async callbacks.
+        -Emits a notify event after args have been sent to subscribers.
+        Notify emits the used namespace.
+    """
 
 
 # noinspection PyUnusedLocal
 async def emit_async(namespace: str, **kwargs: Any) -> None:
-    """See docstring above..."""
+    """
+    Asynchronously emit an event to all matching subscribers.
+
+    Both synchronous and asynchronous subscribers are called in priority order.
+    - Synchronous subscribers are executed immediately.
+    - Asynchronous subscribers are awaited sequentially.
+
+    This method must be awaited. Execution blocks until all subscribers complete.
+    Use emit() for fire-and-forget behavior with sync-only subscribers.
+
+    Args:
+        namespace (str): Event namespace (e.g., 'system.io.file_open').
+        **kwargs (Any): Arguments to pass to subscriber callbacks.
+    Raises:
+        EmitArgumentError: If provided kwargs don't match subscriber
+            signatures.
+    Note:
+        -This method calls both sync and async callbacks. Sync callbacks are
+        executed normally, async callbacks are awaited.
+        -Emits a notify event after args have been sent to subscribers.
+        Notify emits the used namespace.
+    """
 
 
 # noinspection PyUnusedLocal
 def subscribe(namespace: str, priority: int = 0) -> CALLBACK:
-    """See docstring for subscribe_ above..."""
+    """
+    Decorator to register a function or static method as a subscriber.
+
+    To register an instance referencing class method (one using 'self'),
+    use broker.register_subscriber('source', 'event_name', self.method).
+
+    Usage:
+        @subscribe('system.file.io', 5)
+        def on_file_open(filepath: str) -> None:
+            print(f'File opened: {filepath}')
+    Args:
+        namespace (str): The event namespace to subscribe to.
+        priority (int): The execution priority. Defaults to 0.
+    Returns:
+        Callable: Decorator function that registers the subscriber.
+    """
 
 
 # noinspection PyUnusedLocal
@@ -586,8 +586,21 @@ def set_flag_sates(
     on_new_namespace: bool = False,
     on_del_namespace: bool = False,
 ) -> None:
-    """See docstring above..."""
+    """
+    Set the notification flags on or off for each type of broker activity.
+    The broker can be configured through any of the following:
+
+    Args:
+        on_subscribe:    	if True, get notified whenever register_subscriber() is called;
+        on_unsubscribe:  	if True, get notified whenever unregister_subscriber() is called;
+        on_collected:       if True, get notified whenever a subscriber has been garbage collected;
+        on_emit:			if True, get notified whenever emit() is called;
+        on_emit_async:		if True, get notified whenever emit_async() is called;
+        on_emit_all:		if True, get notified whenever emit() or emit_async() is called.
+        on_new_namespace: 	if True, get notified whenever a new namespace is created;
+        on_del_namespace:	if True, get notified whenever a namespace is "deleted";
+    """
 
 
 def to_string() -> str:
-    """See docstring above..."""
+    """Returns a string representation of the broker."""
