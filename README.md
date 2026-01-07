@@ -190,7 +190,7 @@ broker.register_subscriber('process', always_succeeds, priority=5)
 
 # With silent handler, both callbacks run even if first fails
 from broker import exceptions
-broker._exception_handler = exceptions.silent_exception_handler
+broker.set_exception_handler(exceptions.silent_exception_handler)
 
 broker.emit('process', value=-1)  # Both callbacks execute
 
