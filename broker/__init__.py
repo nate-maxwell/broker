@@ -5,26 +5,26 @@ Herein is the event broker system itself as a module class to create a
 protective closure around the subscriber namespace table.
 
 Function stubs exist at the bottom of the file for static type checkers to
-validate correct calls.
+validate correct calls during CI/CD.
 """
-
 
 import asyncio
 import inspect
 import json
 import sys
 import weakref
-from dataclasses import dataclass
 from types import ModuleType
 from typing import Any
 from typing import Callable
-from typing import Coroutine
 from typing import Optional
 from typing import Union
 
+from broker import exceptions
+from broker import subscriber
 
-version_major = 1
-version_minor = 0
+
+version_major = 0
+version_minor = 1
 version_patch = 0
 
 __version__ = f"{version_major}.{version_minor}.{version_patch}"
@@ -38,44 +38,7 @@ class EmitArgumentError(Exception):
     """Raised when emit arguments don't match subscriber signatures."""
 
 
-CALLBACK = Union[Callable[..., Any], Callable[..., Coroutine[Any, Any, Any]]]
-"""
-The callback end point that event info is forwarded to. These are the actions
-that 'subscribe' and will execute when an event is triggered. Can be sync or
-async.
-
-The broker cannot determine which value to send back to the caller.
-If you want data back, create an event going the opposite direction.
-"""
-
-
-@dataclass(frozen=True)
-class Subscriber(object):
-    """A subscriber with a callback and priority."""
-
-    weak_callback: Union[weakref.ref[Any], weakref.WeakMethod]
-    """
-    The end point that data is forwarded to. i.e. what gets ran.
-    This is a weak reference so the callback isn't kept alive by the broker.
-    Broker can notify when item is garbage collected.
-    """
-
-    priority: int
-    """Where in the execution order the callback should take place."""
-
-    is_async: bool
-    """If the item is asynchronous or not..."""
-
-    namespace: str
-    """The namespace the subscriber is listening to."""
-
-    @property
-    def callback(self) -> Optional[CALLBACK]:
-        """Get the live callback, or None if collected."""
-        return self.weak_callback()
-
-
-_SUBSCRIBERS: dict[str, list[Subscriber]] = {}
+_SUBSCRIBERS: dict[str, list[subscriber.Subscriber]] = {}
 """
 The broker's record of each namespace to subscribers.
 
@@ -98,7 +61,9 @@ BROKER_ON_NAMESPACE_DELETED = f"{_NOTIFY_NAMESPACE_ROOT}namespace.deleted"
 
 
 def _make_weak_ref(
-    callback: CALLBACK, namespace: str, on_collected_callback: Callable[[str], None]
+    callback: subscriber.CALLBACK,
+    namespace: str,
+    on_collected_callback: Callable[[str], None],
 ) -> Union[weakref.ref[Any], weakref.WeakMethod]:
     """Create appropriate weak reference for any callback type."""
 
@@ -121,25 +86,9 @@ def _make_subscribe_decorator(broker_module: "Broker") -> Callable:
     it using a python namespace and thus creating a circular reference.
     """
 
-    def subscribe_(namespace: str, priority: int = 0) -> CALLBACK:
-        """
-        Decorator to register a function or static method as a subscriber.
+    def subscribe_(namespace: str, priority: int = 0) -> subscriber.CALLBACK:
 
-        To register an instance referencing class method (one using 'self'),
-        use broker.register_subscriber('source', 'event_name', self.method).
-
-        Usage:
-            @subscribe('system.file.io', 5)
-            def on_file_open(filepath: str) -> None:
-                print(f'File opened: {filepath}')
-        Args:
-            namespace (str): The event namespace to subscribe to.
-            priority (int): The execution priority. Defaults to 0.
-        Returns:
-            Callable: Decorator function that registers the subscriber.
-        """
-
-        def decorator(func: CALLBACK) -> CALLBACK:
+        def decorator(func: subscriber.CALLBACK) -> subscriber.CALLBACK:
             broker_module.register_subscriber(namespace, func, priority)
             return func
 
@@ -158,10 +107,7 @@ class Broker(ModuleType):
     Use emit_async() to await all subscribers.
     """
 
-    # -----Accessible Runtime Closures-----
-    __version__ = __version__
-
-    CALLBACK = CALLBACK
+    # -----Runtime Closures-----
     SignatureMismatchError = SignatureMismatchError
     EmitArgumentError = EmitArgumentError
 
@@ -177,6 +123,9 @@ class Broker(ModuleType):
     def __init__(self, name: str) -> None:
         super().__init__(name)
         self.subscribe = _make_subscribe_decorator(self)
+        self._exception_handler: Optional[exceptions.EXCEPTION_HANDLER] = (
+            exceptions.stop_and_log_exception_handler
+        )
 
         # -----Notifies-----
         self.notify_on_all: bool = False
@@ -195,7 +144,7 @@ class Broker(ModuleType):
         _NAMESPACE_SIGNATURES.clear()
 
     @staticmethod
-    def _get_callback_params(callback: "CALLBACK") -> Union[set[str], None]:
+    def _get_callback_params(callback: "subscriber.CALLBACK") -> Union[set[str], None]:
         """
         Extract parameter names from a callback function.
 
@@ -231,12 +180,12 @@ class Broker(ModuleType):
             self.emit(namespace=BROKER_ON_SUBSCRIBER_COLLECTED, using=namespace)
 
     def register_subscriber(
-        self, namespace: str, callback: "CALLBACK", priority: int = 0
+        self, namespace: str, callback: "subscriber.CALLBACK", priority: int = 0
     ) -> None:
         callback_params = Broker._get_callback_params(callback)
         is_async = asyncio.iscoroutinefunction(callback)
         weak_callback = _make_weak_ref(callback, namespace, self._on_callback_collected)
-        subscriber = Subscriber(
+        sub = subscriber.Subscriber(
             weak_callback=weak_callback,
             priority=priority,
             is_async=is_async,
@@ -267,14 +216,16 @@ class Broker(ModuleType):
             ):
                 self.emit(namespace=BROKER_ON_NAMESPACE_CREATED, using=namespace)
 
-        _SUBSCRIBERS[namespace].append(subscriber)
+        _SUBSCRIBERS[namespace].append(sub)
         if (
             not namespace.startswith(_NOTIFY_NAMESPACE_ROOT)
             and self.notify_on_subscribe
         ):
             self.emit(namespace=BROKER_ON_SUBSCRIBER_ADDED, using=namespace)
 
-    def unregister_subscriber(self, namespace: str, callback: "CALLBACK") -> None:
+    def unregister_subscriber(
+        self, namespace: str, callback: "subscriber.CALLBACK"
+    ) -> None:
         if namespace in _SUBSCRIBERS:
             _SUBSCRIBERS[namespace] = [
                 sub for sub in _SUBSCRIBERS[namespace] if sub.callback != callback
@@ -329,6 +280,11 @@ class Broker(ModuleType):
                     f"but got: {sorted(provided_args)}"
                 )
 
+    def set_exception_handler(
+        self, handler: Optional[exceptions.EXCEPTION_HANDLER]
+    ) -> None:
+        self._exception_handler = handler
+
     def emit(self, namespace: str, **kwargs: Any) -> None:
         self._validate_emit_args(namespace, kwargs)
 
@@ -337,9 +293,19 @@ class Broker(ModuleType):
                 sorted_subscribers = sorted(
                     subscribers, key=lambda s: s.priority, reverse=True
                 )
-                for subscriber in sorted_subscribers:
-                    if not subscriber.is_async:  # Only call sync callbacks
-                        subscriber.callback(**kwargs)
+                for sub in sorted_subscribers:
+                    callback = sub.callback
+
+                    if callback is not None and not sub.is_async:
+                        try:
+                            callback(**kwargs)
+                        except Exception as e:
+                            if self._exception_handler is not None:
+                                stop = self._exception_handler(callback, namespace, e)
+                                if stop:
+                                    break
+                            else:
+                                raise
 
         if not namespace.startswith(_NOTIFY_NAMESPACE_ROOT) and (
             self.notify_on_emit or self.notify_on_emit_all
@@ -354,11 +320,24 @@ class Broker(ModuleType):
                 sorted_subscribers = sorted(
                     subscribers, key=lambda s: s.priority, reverse=True
                 )
-                for subscriber in sorted_subscribers:
-                    if subscriber.is_async:
-                        await subscriber.callback(**kwargs)
-                    else:
-                        subscriber.callback(**kwargs)
+                for sub in sorted_subscribers:
+                    callback = sub.callback
+
+                    if callback is None:
+                        continue
+
+                    try:
+                        if sub.is_async:
+                            await callback(**kwargs)
+                        else:
+                            callback(**kwargs)
+                    except Exception as e:
+                        if self._exception_handler is not None:
+                            stop = self._exception_handler(callback, namespace, e)
+                            if stop:
+                                break
+                        else:
+                            raise
 
         if not namespace.startswith(_NOTIFY_NAMESPACE_ROOT) and (
             self.notify_on_emit_async or self.notify_on_emit_all
@@ -466,11 +445,13 @@ sys.modules[__name__] = custom_module
 
 
 def clear() -> None:
-    """Clear the subscriber and namespace table."""
+    """Clears the namespace and subscriber table."""
 
 
 # noinspection PyUnusedLocal
-def register_subscriber(namespace: str, callback: CALLBACK, priority: int = 0) -> None:
+def register_subscriber(
+    namespace: str, callback: subscriber.CALLBACK, priority: int = 0
+) -> None:
     """
     Register a callback function to a namespace.
 
@@ -491,7 +472,7 @@ def register_subscriber(namespace: str, callback: CALLBACK, priority: int = 0) -
 
 
 # noinspection PyUnusedLocal
-def unregister_subscriber(namespace: str, callback: CALLBACK) -> None:
+def unregister_subscriber(namespace: str, callback: subscriber.CALLBACK) -> None:
     """
     Remove a callback from a namespace.
 
@@ -502,6 +483,29 @@ def unregister_subscriber(namespace: str, callback: CALLBACK) -> None:
         Emits a notify event when subscriber is unregistered and when a
         namespace is removed from consolidation. Notify emits the used
         namespace.
+    """
+
+
+# noinspection PyUnusedLocal
+def set_exception_handler(handler: Optional[exceptions.EXCEPTION_HANDLER]) -> None:
+    """
+    Set the exception handler for subscriber errors.
+    The handler is called when a subscriber raises an exception during emit.
+
+    Args:
+        handler: Callable with signature (CALLBACK, str, Exception) -> bool.
+                 Returns True to stop delivery, False to continue.
+                 Pass None to restore default behavior (re-raise exceptions).
+    Example:
+        def my_handler(callback, namespace, exc):
+            print(f"Error in {namespace}: {exc}")
+            return False  # Continue
+
+        broker.set_exception_handler(my_handler)
+
+        # Or use the built-in default handler
+        import broker
+        broker.set_exception_handler(broker.default_exception_handler)
     """
 
 
@@ -556,7 +560,7 @@ async def emit_async(namespace: str, **kwargs: Any) -> None:
 
 
 # noinspection PyUnusedLocal
-def subscribe(namespace: str, priority: int = 0) -> CALLBACK:
+def subscribe(namespace: str, priority: int = 0) -> subscriber.CALLBACK:
     """
     Decorator to register a function or static method as a subscriber.
 
