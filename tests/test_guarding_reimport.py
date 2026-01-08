@@ -12,6 +12,7 @@ def test_reimport_guard() -> None:
     with pytest.raises(
         # Explicit exception type is not exported so it is not added as the
         # expected_exception arg.
+        ImportError,
         match="Module 'broker' has already been imported and cannot be reloaded",
     ):
         importlib.reload(broker)

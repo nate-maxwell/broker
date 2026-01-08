@@ -14,20 +14,11 @@ subscribers table from being lost on import.
 import sys
 
 
-class BrokerImportException(Exception):
-    """
-    Raised when an attempt to reimport the broker occurs.
-
-    This exception is not exported via closure in the broker class to prevent
-    users from attempting to catch it directly.
-    """
-
-
 # Prevent module reload - subscribers table would be lost!
 if "broker" in sys.modules:
     existing_module = sys.modules["broker"]
     if hasattr(existing_module, "_BROKER_IMPORT_GUARD"):
-        raise BrokerImportException(
+        raise ImportError(
             "Module 'broker' has already been imported and cannot be reloaded. "
             "Subscriber data would be lost. "
             "Restart your Python session to reimport."
