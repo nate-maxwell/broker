@@ -115,6 +115,15 @@ broker.register_subscriber(broker.BROKER_ON_SUBSCRIBER_ADDED, on_subscriber_adde
 * Note that this decorator does not work with instance bound class methods. It
 works with regular functions or static methods.
 
+## Reimport Protection
+
+If the broker is reimported an `ImportError` is raised.
+
+Broker is a singleton with a global namespace/subscribers table. To prevent data
+loss the broker contains a reimport safeguard to keep the table from being
+cleared from reimporting. This plus the protective closure makes it **very**
+difficult to access outside the official interfaces.
+
 # Example
 ```python
 import broker
