@@ -4,11 +4,11 @@
 Herein is the event broker system itself as a module class to create a
 protective closure around the subscriber namespace table.
 
-Function stubs exist at the bottom of the file for static type checkers to
-validate correct calls during CI/CD.
-
 A reimport protection clause exists at the top of the file to prevent the
 subscribers table from being lost on import.
+
+Function stubs exist at the bottom of the file for static type checkers to
+validate correct calls.
 """
 
 import sys
