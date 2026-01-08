@@ -172,7 +172,7 @@ class Broker(ModuleType):
         _NAMESPACE_SIGNATURES.clear()
 
     @staticmethod
-    def _get_callback_params(callback: "subscriber.CALLBACK") -> Union[set[str], None]:
+    def _get_callback_params(callback: subscriber.CALLBACK) -> Union[set[str], None]:
         """
         Extract parameter names from a callback function.
 
@@ -208,7 +208,7 @@ class Broker(ModuleType):
             self.emit(namespace=BROKER_ON_SUBSCRIBER_COLLECTED, using=namespace)
 
     def register_subscriber(
-        self, namespace: str, callback: "subscriber.CALLBACK", priority: int = 0
+        self, namespace: str, callback: subscriber.CALLBACK, priority: int = 0
     ) -> None:
         callback_params = Broker._get_callback_params(callback)
         is_async = asyncio.iscoroutinefunction(callback)
@@ -252,7 +252,7 @@ class Broker(ModuleType):
             self.emit(namespace=BROKER_ON_SUBSCRIBER_ADDED, using=namespace)
 
     def unregister_subscriber(
-        self, namespace: str, callback: "subscriber.CALLBACK"
+        self, namespace: str, callback: subscriber.CALLBACK
     ) -> None:
         if namespace in _SUBSCRIBERS:
             _SUBSCRIBERS[namespace] = [
@@ -264,10 +264,10 @@ class Broker(ModuleType):
             ):
                 self.emit(namespace=BROKER_ON_SUBSCRIBER_REMOVED, using=namespace)
 
+            # Clean up signature tracking if no subscribers left
             if not _SUBSCRIBERS[namespace]:
                 del _SUBSCRIBERS[namespace]
 
-                # Clean up signature tracking if no subscribers left
                 if namespace in _NAMESPACE_SIGNATURES:
                     del _NAMESPACE_SIGNATURES[namespace]
 
@@ -380,7 +380,7 @@ class Broker(ModuleType):
         Args:
             event_namespace (str): The namespace where event was emitted.
             subscriber_namespace (str): The namespace a subscriber registered
-                for.
+              under.
         Returns:
             bool: True if subscriber should receive the event.
         """
@@ -425,7 +425,6 @@ class Broker(ModuleType):
         for namespace in keys:
             subscribers_info = []
             for sub in _SUBSCRIBERS[namespace]:
-                # Get live callback (or None if collected)
                 callback = sub.callback
 
                 if callback is None:
@@ -447,7 +446,6 @@ class Broker(ModuleType):
                     # Fallback for unusual callables
                     info = str(callback)
 
-                # Priority and async info
                 priority_str = (
                     f" [priority={sub.priority}]" if sub.priority != 0 else ""
                 )
