@@ -35,11 +35,14 @@ class Subscriber(object):
     """
     The end point that data is forwarded to. i.e. what gets ran.
     This is a weak reference so the callback isn't kept alive by the broker.
-    Broker can notify when item is garbage collected.
+    Broker can notify when item is garbage collected or deleted.
     """
 
     priority: int
-    """Where in the execution order the callback should take place."""
+    """
+    Where in the execution order the callback should take place.
+    Higher numbers are executed before lower numbers.
+    """
 
     is_async: bool
     """If the item is asynchronous or not..."""
