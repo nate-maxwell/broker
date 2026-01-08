@@ -6,12 +6,37 @@ protective closure around the subscriber namespace table.
 
 Function stubs exist at the bottom of the file for static type checkers to
 validate correct calls during CI/CD.
+
+A reimport protection clause exists at the top of the file to prevent the
+subscribers table from being lost on import.
 """
+
+import sys
+
+
+class BrokerImportException(Exception):
+    """
+    Raised when an attempt to reimport the broker occurs.
+
+    This exception is not exported via closure in the broker class to prevent
+    users from attempting to catch it directly.
+    """
+
+
+# Prevent module reload - subscribers table would be lost!
+if "broker" in sys.modules:
+    existing_module = sys.modules["broker"]
+    if hasattr(existing_module, "_BROKER_IMPORT_GUARD"):
+        raise BrokerImportException(
+            "Module 'broker' has already been imported and cannot be reloaded. "
+            "Subscriber data would be lost. "
+            "Restart your Python session to reimport."
+        )
+_BROKER_IMPORT_GUARD = True
 
 import asyncio
 import inspect
 import json
-import sys
 import weakref
 from types import ModuleType
 from typing import Any
@@ -28,14 +53,6 @@ version_minor = 1
 version_patch = 0
 
 __version__ = f"{version_major}.{version_minor}.{version_patch}"
-
-
-class SignatureMismatchError(Exception):
-    """Raised when callback signatures don't match for a namespace."""
-
-
-class EmitArgumentError(Exception):
-    """Raised when emit arguments don't match subscriber signatures."""
 
 
 _SUBSCRIBERS: dict[str, list[subscriber.Subscriber]] = {}
@@ -58,6 +75,14 @@ BROKER_ON_EMIT_ASYNC = f"{_NOTIFY_NAMESPACE_ROOT}emit.async"
 BROKER_ON_EMIT_ALL = f"{_NOTIFY_NAMESPACE_ROOT}emit.all"
 BROKER_ON_NAMESPACE_CREATED = f"{_NOTIFY_NAMESPACE_ROOT}namespace.created"
 BROKER_ON_NAMESPACE_DELETED = f"{_NOTIFY_NAMESPACE_ROOT}namespace.deleted"
+
+
+class SignatureMismatchError(Exception):
+    """Raised when callback signatures don't match for a namespace."""
+
+
+class EmitArgumentError(Exception):
+    """Raised when emit arguments don't match subscriber signatures."""
 
 
 def _make_weak_ref(
@@ -107,10 +132,14 @@ class Broker(ModuleType):
     Use emit_async() to await all subscribers.
     """
 
-    # -----Runtime Closures-----
+    # -----Runtime Closures----------------------------------------------------
+    # ---Constants---
+    _BROKER_IMPORT_GUARD = _BROKER_IMPORT_GUARD
+    # ---Exceptions---
     SignatureMismatchError = SignatureMismatchError
     EmitArgumentError = EmitArgumentError
 
+    # ---Default Namespaces---
     BROKER_ON_SUBSCRIBER_ADDED = BROKER_ON_SUBSCRIBER_ADDED
     BROKER_ON_SUBSCRIBER_REMOVED = BROKER_ON_SUBSCRIBER_REMOVED
     BROKER_ON_SUBSCRIBER_COLLECTED = BROKER_ON_SUBSCRIBER_COLLECTED
@@ -120,8 +149,15 @@ class Broker(ModuleType):
     BROKER_ON_NAMESPACE_CREATED = BROKER_ON_NAMESPACE_CREATED
     BROKER_ON_NAMESPACE_DELETED = BROKER_ON_NAMESPACE_DELETED
 
+    # ---Modules---
+    exceptions = exceptions
+    subscriber = subscriber
+    # -------------------------------------------------------------------------
+
     def __init__(self, name: str) -> None:
         super().__init__(name)
+        assert self._BROKER_IMPORT_GUARD is True
+
         self.subscribe = _make_subscribe_decorator(self)
         self._exception_handler: Optional[exceptions.EXCEPTION_HANDLER] = (
             exceptions.stop_and_log_exception_handler
