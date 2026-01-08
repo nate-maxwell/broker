@@ -484,13 +484,13 @@ def register_subscriber(
     Args:
         namespace (str): Event namespace
             (e.g., 'system.io.file_open' or 'system.*').
-        callback (CALLBACK): Function to call when events are emitted. Can
-            be sync or async.
+        callback (CALLBACK): Function to call when events are emitted. Can be
+            sync or async.
         priority (int): The priority used for callback execution order.
             Higher priorities are ran before lower priorities.
     Raises:
-        SignatureMismatchError: If callback signature doesn't match
-            existing subscribers.
+        SignatureMismatchError: If callback signature doesn't match existing
+            subscribers.
     Notes:
         Emits a notify event when a namespace is created and when a
         subscriber is registered. Notify emits the used namespace.
@@ -523,7 +523,7 @@ def set_exception_handler(handler: Optional[handlers.EXCEPTION_HANDLER]) -> None
                  Returns True to stop delivery, False to continue.
                  Pass None to restore default behavior (re-raise exceptions).
     Example:
-        def my_handler(callback, namespace, exc):
+        def my_handler(callback: Callable, namespace: str, exc: Exception) -> bool:
             print(f"Error in {namespace}: {exc}")
             return False  # Continue
 
