@@ -126,6 +126,7 @@ class Broker(ModuleType):
     # -----Runtime Closures----------------------------------------------------
     # ---Constants---
     _BROKER_IMPORT_GUARD = _BROKER_IMPORT_GUARD
+
     # ---Exceptions---
     SignatureMismatchError = SignatureMismatchError
     EmitArgumentError = EmitArgumentError
