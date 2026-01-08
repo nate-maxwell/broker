@@ -35,7 +35,7 @@ from typing import Callable
 from typing import Optional
 from typing import Union
 
-from broker import exceptions
+from broker import handlers
 from broker import subscriber
 
 
@@ -141,7 +141,7 @@ class Broker(ModuleType):
     BROKER_ON_NAMESPACE_DELETED = BROKER_ON_NAMESPACE_DELETED
 
     # ---Modules---
-    exceptions = exceptions
+    handlers = handlers
     subscriber = subscriber
     # -------------------------------------------------------------------------
 
@@ -150,8 +150,8 @@ class Broker(ModuleType):
         assert self._BROKER_IMPORT_GUARD is True
 
         self.subscribe = _make_subscribe_decorator(self)
-        self._exception_handler: Optional[exceptions.EXCEPTION_HANDLER] = (
-            exceptions.stop_and_log_exception_handler
+        self._exception_handler: Optional[handlers.EXCEPTION_HANDLER] = (
+            handlers.stop_and_log_exception_handler
         )
 
         # -----Notifies-----
@@ -308,7 +308,7 @@ class Broker(ModuleType):
                 )
 
     def set_exception_handler(
-        self, handler: Optional[exceptions.EXCEPTION_HANDLER]
+        self, handler: Optional[handlers.EXCEPTION_HANDLER]
     ) -> None:
         self._exception_handler = handler
 
@@ -514,7 +514,7 @@ def unregister_subscriber(namespace: str, callback: subscriber.CALLBACK) -> None
 
 
 # noinspection PyUnusedLocal
-def set_exception_handler(handler: Optional[exceptions.EXCEPTION_HANDLER]) -> None:
+def set_exception_handler(handler: Optional[handlers.EXCEPTION_HANDLER]) -> None:
     """
     Set the exception handler for subscriber errors.
     The handler is called when a subscriber raises an exception during emit.

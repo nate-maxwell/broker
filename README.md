@@ -44,7 +44,7 @@ delivery to remaining subscribers.
 **Stop on Exception (Default)**
 
 ```python
-from broker import exceptions
+from broker import handlers
 
 # Default behavior - logs error and stops delivery
 broker.set_exception_handler(exceptions.stop_on_exception_handler)
@@ -125,12 +125,15 @@ cleared from reimporting. This plus the protective closure makes it **very**
 difficult to access outside the official interfaces.
 
 # Example
+
 ```python
 import broker
+
 
 # Basic usage - register and emit
 def on_file_saved(filename: str, size: int) -> None:
     print(f'File saved: {filename} ({size} bytes)')
+
 
 broker.register_subscriber('file.save', on_file_saved)
 broker.emit('file.save', filename='document.txt', size=1024)
@@ -139,6 +142,7 @@ broker.emit('file.save', filename='document.txt', size=1024)
 # Wildcard subscriptions
 def on_any_file_event(filename: str, size: int) -> None:
     print(f'File event: {filename}')
+
 
 broker.register_subscriber('file.*', on_any_file_event)
 broker.emit('file.save', filename='data.json', size=2048)
@@ -149,23 +153,27 @@ broker.emit('file.delete', filename='temp.txt', size=512)
 def high_priority_handler(message: str) -> None:
     print('High priority:', message)
 
+
 def low_priority_handler(message: str) -> None:
     print('Low priority:', message)
+
 
 broker.register_subscriber('system.alert', high_priority_handler, priority=10)
 broker.register_subscriber('system.alert', low_priority_handler, priority=1)
 broker.emit('system.alert', message='Warning!')
 
-
 # Async callbacks
 import asyncio
+
 
 async def async_handler(data: str) -> None:
     await asyncio.sleep(0.1)
     print(f'Async processed: {data}')
 
+
 def sync_handler(data: str) -> None:
     print(f'Sync processed: {data}')
+
 
 broker.register_subscriber('process.data', async_handler)
 broker.register_subscriber('process.data', sync_handler)
@@ -181,6 +189,7 @@ await broker.emit_async('process.data', data='example')  # Calls both
 def flexible_handler(**kwargs: object) -> None:
     print('Received:', kwargs)
 
+
 broker.register_subscriber('flexible.event', flexible_handler)
 broker.emit('flexible.event', foo='bar', count=42, active=True)
 
@@ -191,18 +200,20 @@ def might_fail(value: int) -> None:
         raise ValueError('Negative values not allowed')
     print(f'Processed: {value}')
 
+
 def always_succeeds(value: int) -> None:
     print('Cleanup complete')
+
 
 broker.register_subscriber('process', might_fail, priority=10)
 broker.register_subscriber('process', always_succeeds, priority=5)
 
 # With silent handler, both callbacks run even if first fails
-from broker import exceptions
+from broker import handlers
+
 broker.set_exception_handler(exceptions.silent_exception_handler)
 
 broker.emit('process', value=-1)  # Both callbacks execute
-
 
 # Unregister subscribers
 broker.unregister_subscriber('file.save', on_file_saved)
