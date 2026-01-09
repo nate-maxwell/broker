@@ -151,6 +151,7 @@ class Broker(ModuleType):
         assert self._BROKER_IMPORT_GUARD is True
 
         self.subscribe = _make_subscribe_decorator(self)
+
         self._exception_handler: Optional[handlers.EXCEPTION_HANDLER] = (
             handlers.stop_and_log_exception_handler
         )
@@ -170,6 +171,8 @@ class Broker(ModuleType):
     def clear() -> None:
         _SUBSCRIBERS.clear()
         _NAMESPACE_SIGNATURES.clear()
+
+    # -----Subscriber Management-----------------------------------------------
 
     @staticmethod
     def _get_callback_params(callback: subscriber.CALLBACK) -> Union[set[str], None]:
@@ -313,6 +316,8 @@ class Broker(ModuleType):
     ) -> None:
         self._exception_handler = handler
 
+    # -----Emitter Handling----------------------------------------------------
+
     def emit(self, namespace: str, **kwargs: Any) -> None:
         self._validate_emit_args(namespace, kwargs)
 
@@ -396,6 +401,8 @@ class Broker(ModuleType):
 
         return False
 
+    # -----Notifies + Helpers--------------------------------------------------
+
     def set_flag_sates(
         self,
         on_subscribe: bool = False,
@@ -455,6 +462,127 @@ class Broker(ModuleType):
             data[namespace] = subscribers_info
 
         return json.dumps(data, indent=4)
+
+    # -----Introspection API---------------------------------------------------
+
+    @staticmethod
+    def get_namespaces() -> list[str]:
+        return sorted(_SUBSCRIBERS.keys())
+
+    @staticmethod
+    def namespace_exists(namespace: str) -> bool:
+        return namespace in _SUBSCRIBERS
+
+    @staticmethod
+    def get_subscriber_count(namespace: str) -> int:
+        return len(_SUBSCRIBERS.get(namespace, []))
+
+    @staticmethod
+    def get_live_subscriber_count(namespace: str) -> int:
+        if namespace not in _SUBSCRIBERS:
+            return 0
+        return sum(1 for sub in _SUBSCRIBERS[namespace] if sub.callback is not None)
+
+    @staticmethod
+    def is_subscribed(callback: subscriber.CALLBACK, namespace: str) -> bool:
+        if namespace not in _SUBSCRIBERS:
+            return False
+
+        for sub in _SUBSCRIBERS[namespace]:
+            if sub.callback == callback:
+                return True
+        return False
+
+    @staticmethod
+    def get_subscriptions(callback: subscriber.CALLBACK) -> list[str]:
+        subscriptions = []
+        for namespace, subscribers in _SUBSCRIBERS.items():
+            for sub in subscribers:
+                if sub.callback == callback:
+                    subscriptions.append(namespace)
+                    break
+        return sorted(subscriptions)
+
+    @staticmethod
+    def get_subscribers(namespace: str) -> list[subscriber.Subscriber]:
+        return list(_SUBSCRIBERS.get(namespace, []))
+
+    @staticmethod
+    def get_live_subscribers(namespace: str) -> list[subscriber.Subscriber]:
+        if namespace not in _SUBSCRIBERS:
+            return []
+        return [sub for sub in _SUBSCRIBERS[namespace] if sub.callback is not None]
+
+    @staticmethod
+    def get_matching_namespaces(pattern: str) -> list[str]:
+        matching = []
+        for namespace in _SUBSCRIBERS.keys():
+            # Pattern 'system.io.*' should match namespace 'system.io.file'
+            # OR namespace 'system.*' should match pattern 'system.io.file'
+            if Broker._matches(namespace, pattern) or Broker._matches(
+                pattern, namespace
+            ):
+                matching.append(namespace)
+        return sorted(matching)
+
+    @staticmethod
+    def get_namespace_info(namespace: str) -> Optional[dict[str, object]]:
+        if namespace not in _SUBSCRIBERS:
+            return None
+
+        subscribers = _SUBSCRIBERS[namespace]
+        live_subs = [sub for sub in subscribers if sub.callback is not None]
+
+        return {
+            "namespace": namespace,
+            "subscriber_count": len(subscribers),
+            "live_subscriber_count": len(live_subs),
+            "expected_params": _NAMESPACE_SIGNATURES.get(namespace),
+            "has_async": any(sub.is_async for sub in live_subs),
+            "has_sync": any(not sub.is_async for sub in live_subs),
+            "priorities": sorted(set(sub.priority for sub in live_subs), reverse=True),
+        }
+
+    @staticmethod
+    def get_all_namespace_info() -> dict[str, dict[str, object]]:
+        return {
+            namespace: Broker.get_namespace_info(namespace)
+            for namespace in _SUBSCRIBERS.keys()
+        }
+
+    @staticmethod
+    def get_statistics() -> dict[str, object]:
+        total_subscribers = sum(len(subs) for subs in _SUBSCRIBERS.values())
+        total_live = sum(
+            sum(1 for sub in subs if sub.callback is not None)
+            for subs in _SUBSCRIBERS.values()
+        )
+
+        namespaces_with_async = sum(
+            1
+            for subs in _SUBSCRIBERS.values()
+            if any(sub.is_async and sub.callback is not None for sub in subs)
+        )
+
+        namespaces_with_sync = sum(
+            1
+            for subs in _SUBSCRIBERS.values()
+            if any(not sub.is_async and sub.callback is not None for sub in subs)
+        )
+
+        namespace_count = len(_SUBSCRIBERS)
+
+        return {
+            "total_namespaces": namespace_count,
+            "total_subscribers": total_subscribers,
+            "total_live_subscribers": total_live,
+            "dead_references": total_subscribers - total_live,
+            "namespaces_with_async": namespaces_with_async,
+            "namespaces_with_sync": namespaces_with_sync,
+            "average_subscribers_per_namespace": (
+                total_live / namespace_count if namespace_count > 0 else 0
+            ),
+        }
 
 
 # This is here to protect the _SUBSCRIBERS dict, creating a protective closure.
@@ -634,3 +762,169 @@ def set_flag_sates(
 
 def to_string() -> str:
     """Returns a string representation of the broker."""
+
+
+def get_namespaces() -> list[str]:
+    """Get all registered namespaces."""
+
+
+# noinspection PyUnusedLocal
+def namespace_exists(namespace: str) -> bool:
+    """Check if a namespace exists..."""
+
+
+# noinspection PyUnusedLocal
+def get_subscriber_count(namespace: str) -> int:
+    """
+    Get the number of subscribers for a namespace.
+
+    Args:
+        namespace (str): Namespace to count subscribers for.
+    Returns:
+        int: Number of subscribers (including dead weak references).
+    """
+
+
+# noinspection PyUnusedLocal
+def get_live_subscriber_count(namespace: str) -> int:
+    """
+    Get the number of live (non-garbage-collected) subscribers.
+
+    Args:
+        namespace: Namespace to count live subscribers for.
+    Returns:
+        Number of subscribers with live callbacks.
+    """
+
+
+# noinspection PyUnusedLocal
+def is_subscribed(callback: subscriber.CALLBACK, namespace: str) -> bool:
+    """
+    Check if a specific callback is subscribed to a namespace.
+
+    Args:
+        callback (Callable): The callback function to check.
+        namespace (str): The namespace to check.
+
+    Returns:
+        bool: True if callback is subscribed to namespace, False otherwise.
+    """
+
+
+# noinspection PyUnusedLocal
+def get_subscriptions(callback: subscriber.CALLBACK) -> list[str]:
+    """
+    Get all namespaces that a callback is subscribed to.
+
+    Args:
+        callback (Callable): The callback to find subscriptions for.
+    Returns:
+        list[str]: List of namespace strings the callback is subscribed to.
+    Example:
+        >>> def my_handler(data: str): pass
+        >>> broker.register_subscriber('test.one', my_handler)
+        >>> broker.register_subscriber('test.two', my_handler)
+        >>> broker.get_subscriptions(my_handler)
+        ['test.one', 'test.two']
+    """
+
+
+# noinspection PyUnusedLocal
+def get_subscribers(namespace: str) -> list[subscriber.Subscriber]:
+    """
+    Get all subscribers for a namespace.
+
+    Args:
+        namespace (str): Namespace to get subscribers for.
+    Returns:
+        list[subscriber.Subscriber]: List of Subscriber objects. May include
+            dead references.
+    """
+
+
+# noinspection PyUnusedLocal
+def get_live_subscribers(namespace: str) -> list[subscriber.Subscriber]:
+    """
+    Get all live (non-garbage-collected) subscribers for a namespace.
+
+    Args:
+        namespace (str): Namespace to get live subscribers for.
+    Returns:
+        list[subscriber.Subscriber]: List of Subscriber objects with live
+            callbacks only.
+    """
+
+
+# noinspection PyUnusedLocal
+def get_matching_namespaces(pattern: str) -> list[str]:
+    """
+    Get all namespaces that match a pattern (including wildcards).
+
+    Args:
+        pattern (str): Pattern to match (e.g., 'system.*' or 'app.module.action').
+    Returns:
+        list[str]: List of matching namespace strings.
+    Example:
+        >>> broker.get_matching_namespaces('system.*')
+        ['system.io.file', 'system.io.network']
+    """
+
+
+# noinspection PyUnusedLocal
+def get_namespace_info(namespace: str) -> Optional[dict[str, object]]:
+    """
+    Get detailed information about a namespace.
+
+    Args:
+        namespace (str): Namespace to get info for.
+    Returns:
+        Optional[dict[str, object]]: Dictionary with namespace details, or None
+            if namespace doesn't exist.
+    Example:
+        >>> info = broker.get_namespace_info('test.event')
+        >>> print(info)
+        {
+            'namespace': 'test.event',
+            'subscriber_count': 3,
+            'live_subscriber_count': 2,
+            'expected_params': {'data', 'size'},
+            'has_async': True,
+            'has_sync': True,
+            'priorities': [1, 5, 10]
+        }
+    """
+
+
+def get_all_namespace_info() -> dict[str, dict[str, object]]:
+    """
+    Get detailed information for all namespaces.
+
+    Returns:
+        dict[str, dict[str, object]]: Dictionary mapping namespace to info dict.
+    Example:
+        >>> all_info = broker.get_all_namespace_info()
+        >>> for ns, info in all_info.items():
+        ...     print(f"{ns}: {info['live_subscriber_count']} live subscribers")
+    """
+
+
+def get_statistics() -> dict[str, object]:
+    """
+    Get overall broker statistics.
+
+    Returns:
+        dict[str, object]: Dictionary with broker-wide statistics.
+
+    Example:
+        >>> stats = broker.get_statistics()
+        >>> print(stats)
+        {
+            'total_namespaces': 10,
+            'total_subscribers': 45,
+            'total_live_subscribers': 42,
+            'dead_references': 3,
+            'namespaces_with_async': 5,
+            'namespaces_with_sync': 8,
+            'average_subscribers_per_namespace': 4.5
+        }
+    """
