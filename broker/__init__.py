@@ -44,7 +44,7 @@ from broker import subscriber
 
 version_major = 1
 version_minor = 3
-version_patch = 0
+version_patch = 1
 
 __version__ = f"{version_major}.{version_minor}.{version_patch}"
 
@@ -128,6 +128,7 @@ class Broker(ModuleType):
 
     # -----Runtime Closures----------------------------------------------------
     # ---Constants---
+    __version__ = __version__
     _BROKER_IMPORT_GUARD = _BROKER_IMPORT_GUARD
 
     # ---Exceptions---
