@@ -13,9 +13,9 @@ validate correct calls.
 
 # The doc strings for each function exists in the stubs at the bottom of the
 # module, for intellisense fetching, instead of in the broker class.
+# _methods() within the broker class do contain proper doc strings.
 
 import sys
-
 
 # Prevent module reload - subscribers table would be lost!
 if "broker" in sys.modules:
