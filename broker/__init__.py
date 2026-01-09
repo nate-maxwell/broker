@@ -817,6 +817,7 @@ def is_subscribed(callback: subscriber.CALLBACK, namespace: str) -> bool:
     """
 
 
+# noinspection PyUnresolvedReferences
 # noinspection PyUnusedLocal
 def get_subscriptions(callback: subscriber.CALLBACK) -> list[str]:
     """
@@ -861,6 +862,7 @@ def get_live_subscribers(namespace: str) -> list[subscriber.Subscriber]:
     """
 
 
+# noinspection PyUnresolvedReferences
 # noinspection PyUnusedLocal
 def get_matching_namespaces(pattern: str) -> list[str]:
     """
@@ -876,6 +878,7 @@ def get_matching_namespaces(pattern: str) -> list[str]:
     """
 
 
+# noinspection PyUnresolvedReferences
 # noinspection PyUnusedLocal
 def get_namespace_info(namespace: str) -> Optional[dict[str, object]]:
     """
@@ -901,6 +904,7 @@ def get_namespace_info(namespace: str) -> Optional[dict[str, object]]:
     """
 
 
+# noinspection PyUnresolvedReferences
 def get_all_namespace_info() -> dict[str, dict[str, object]]:
     """
     Get detailed information for all namespaces.
@@ -914,6 +918,7 @@ def get_all_namespace_info() -> dict[str, dict[str, object]]:
     """
 
 
+# noinspection PyUnresolvedReferences
 def get_statistics() -> dict[str, object]:
     """
     Get overall broker statistics.
