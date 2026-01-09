@@ -11,6 +11,9 @@ Function stubs exist at the bottom of the file for static type checkers to
 validate correct calls.
 """
 
+# The doc strings for each function exists in the stubs at the bottom of the
+# module, for intellisense fetching, instead of in the broker class.
+
 import sys
 
 
@@ -595,6 +598,9 @@ sys.modules[__name__] = custom_module
 # -----------------------------------------------------------------------------
 # Required for static type checkers to accept these names as members of
 # this module.
+#
+# The doc strings for each function exists in the stubs for intellisense
+# fetching, instead of above.
 # -----------------------------------------------------------------------------
 
 
