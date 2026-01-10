@@ -31,6 +31,7 @@ _BROKER_IMPORT_GUARD = True
 import asyncio
 import inspect
 import json
+import os
 import weakref
 from types import ModuleType
 from typing import Any
@@ -43,10 +44,11 @@ from broker import subscriber
 
 
 version_major = 1
-version_minor = 3
-version_patch = 2
+version_minor = 4
+version_patch = 0
 __version__ = f"{version_major}.{version_minor}.{version_patch}"
 
+StrOrPath = Union[str, os.PathLike]
 
 _SUBSCRIBERS: dict[str, list[subscriber.Subscriber]] = {}
 """
@@ -427,8 +429,8 @@ class Broker(ModuleType):
         self.notify_on_del_namespace = on_del_namespace
 
     @staticmethod
-    def to_string() -> str:
-        """Returns a string representation of the broker."""
+    def to_dict() -> dict:
+        """Convert the broker structure to a dictionary."""
         keys = sorted(_SUBSCRIBERS.keys())
         data = {}
 
@@ -464,7 +466,16 @@ class Broker(ModuleType):
 
             data[namespace] = subscribers_info
 
-        return json.dumps(data, indent=4)
+        return data
+
+    def to_string(self) -> str:
+        """Returns a string representation of the broker."""
+        return json.dumps(self.to_dict(), indent=4)
+
+    def export(self, filepath: StrOrPath) -> None:
+        """Export broker structure to filepath."""
+        with open(filepath, "w") as outfile:
+            json.dump(self.to_dict(), outfile, indent=4)
 
     # -----Introspection API---------------------------------------------------
 
@@ -766,8 +777,17 @@ def set_flag_sates(
     """
 
 
+def to_dict() -> dict:
+    """Convert the broker structure to a dictionary."""
+
+
+# noinspection PyUnusedLocal
 def to_string() -> str:
     """Returns a string representation of the broker."""
+
+
+def export(filepath: StrOrPath) -> None:
+    """Export broker structure to filepath."""
 
 
 def get_namespaces() -> list[str]:

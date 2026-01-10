@@ -6,8 +6,8 @@ namespaces, subscribers, and broker state.
 """
 
 import gc
-
-import pytest
+import json
+from typing import Callable
 
 import broker
 
@@ -293,3 +293,67 @@ def test_inspection_after_unsubscribe() -> None:
     broker.unregister_subscriber("test.event", handler)
     assert broker.namespace_exists("test.event") is False
     assert broker.get_namespaces() == []
+
+
+def _fill_broker() -> tuple[Callable, Callable, Callable]:
+    def process_1() -> None:
+        return
+
+    process_2 = lambda value: None
+    process_3 = lambda value: None
+
+    broker.register_subscriber("system.io", process_1)
+    broker.register_subscriber("system.io.export", process_2)
+    broker.register_subscriber("application", process_2)
+    broker.register_subscriber("application.start", process_3)
+
+    return process_1, process_2, process_3
+
+
+def test_to_string_output_structure() -> None:
+    """Test that to_string produces correct structure and content."""
+    broker.clear()
+    refs = _fill_broker()
+    json_str = broker.to_string()
+    parsed = json.loads(json_str)
+
+    assert "application" in parsed
+    assert "application.start" in parsed
+    assert "system.io" in parsed
+    assert "system.io.export" in parsed
+
+    assert any("process_1" in s for s in parsed["system.io"])
+    assert any("<lambda>" in s for s in parsed["application"])
+    assert any("<lambda>" in s for s in parsed["application.start"])
+    assert any("<lambda>" in s for s in parsed["system.io.export"])
+
+
+def test_to_dict_structure() -> None:
+    """Test that to_dict returns correct structure."""
+    broker.clear()
+    refs = _fill_broker()  # store lambdas to var to keep from getting collected
+    result = broker.to_dict()
+
+    assert "application" in result
+    assert "application.start" in result
+    assert "system.io" in result
+    assert "system.io.export" in result
+
+    assert len(result["application"]) == 1
+    assert len(result["application.start"]) == 1
+    assert len(result["system.io"]) == 1
+    assert len(result["system.io.export"]) == 1
+
+    assert any("process_1" in sub for sub in result["system.io"])
+    assert any("<lambda>" in sub for sub in result["application"])
+
+
+def test_to_string_is_valid_json() -> None:
+    """Test that to_string produces valid JSON."""
+    broker.clear()
+    refs = _fill_broker()  # store lambdas to var to keep from getting collected
+
+    json_str = broker.to_string()
+    parsed = json.loads(json_str)
+
+    assert parsed == broker.to_dict()
