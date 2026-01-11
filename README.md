@@ -75,8 +75,7 @@ broker.set_subscriber_exception_handler(exceptions.silent_exception_handler)
 
 ```python
 exceptions.exceptions_caught.clear()
-broker.set_subscriber_exception_handler(
-    exceptions.collecting_exception_handler)
+broker.set_subscriber_exception_handler(exceptions.collecting_exception_handler)
 
 broker.emit('event', data='test')
 
@@ -88,11 +87,11 @@ for error in exceptions.exceptions_caught:
 **Custom Handler** - Create your own exception policy:
 
 ```python
-def custom_handler(callback, namespace, exception):
+def custom_handler(callback: Callable, namespace: str, exception: Exception) -> bool:
     # Log the error
     print(f"Error in {namespace}: {exception}")
 
-    # Return True to stop delivery, False to continue
+    # Return True to stop delivery and raise, False to ignore and continue
     if isinstance(exception, ValueError):
         return True  # Stop on ValueError
     return False  # Continue on other exceptions
@@ -115,16 +114,18 @@ and lambdas.
 
 Transformers intercept and modify event data before it reaches subscribers. They
 execute in priority order and can modify arguments, add metadata, validate data,
-or block events entirely.
+or block events entirely. Transformers are scoped to namespaces and not globally
+applied.
 
 ### Registering Transformers
 
 ```python
-import time
+import datetime
 
 def add_timestamp(namespace: str, kwargs: dict) -> dict:
     """Add timestamp to all events."""
-    kwargs['timestamp'] = time.time()
+    now = datetime.datetime.now().time().isoformat()[:-4]
+    kwargs['timestamp'] = now
     return kwargs
 
 broker.register_transformer('system.*', add_timestamp, priority=10)
