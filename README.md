@@ -47,18 +47,21 @@ delivery to remaining subscribers.
 from broker import handlers
 
 # Default behavior - logs error and stops delivery
-broker.set_exception_handler(exceptions.stop_on_exception_handler)
+broker.set_subscriber_exception_handler(exceptions.stop_on_exception_handler)
 ```
 
 **Silent Handler** - Ignores exceptions and continues delivery:
+
 ```python
-broker.set_exception_handler(exceptions.silent_exception_handler)
+broker.set_subscriber_exception_handler(exceptions.silent_exception_handler)
 ```
 
 **Collecting Handler** - Captures all exceptions for batch processing:
+
 ```python
 exceptions.exceptions_caught.clear()
-broker.set_exception_handler(exceptions.collecting_exception_handler)
+broker.set_subscriber_exception_handler(
+    exceptions.collecting_exception_handler)
 
 broker.emit('event', data='test')
 
@@ -68,27 +71,152 @@ for error in exceptions.exceptions_caught:
 ```
 
 **Custom Handler** - Create your own exception policy:
+
 ```python
 def custom_handler(callback, namespace, exception):
     # Log the error
     print(f"Error in {namespace}: {exception}")
-    
+
     # Return True to stop delivery, False to continue
     if isinstance(exception, ValueError):
         return True  # Stop on ValueError
     return False  # Continue on other exceptions
 
-broker.set_exception_handler(custom_handler)
+
+broker.set_subscriber_exception_handler(custom_handler)
 ```
 
 **Disable Handler** - Re-raise all exceptions:
+
 ```python
-broker.set_exception_handler(None)  # Exceptions propagate normally
+broker.set_subscriber_exception_handler(None)  # Exceptions propagate normally
 ```
 
 Exception handlers work with both `emit()` and `emit_async()`, and apply to all
 subscriber types including sync callbacks, async callbacks, instance methods,
 and lambdas.
+
+## Transformers
+
+Transformers intercept and modify event data before it reaches subscribers. They
+execute in priority order and can modify arguments, add metadata, validate data,
+or block events entirely.
+
+### Registering Transformers
+
+```python
+import time
+
+def add_timestamp(namespace: str, kwargs: dict) -> dict:
+    """Add timestamp to all events."""
+    kwargs['timestamp'] = time.time()
+    return kwargs
+
+broker.register_transformer('system.*', add_timestamp, priority=10)
+broker.emit('system.io.file', filename='data.txt')  # Gets timestamp automatically
+```
+
+### Blocking Events
+
+Transformers can block event propagation by returning `None`:
+
+```python
+def validate_user(namespace: str, kwargs: dict) -> dict | None:
+    """Block events with invalid user_id."""
+    if 'user_id' not in kwargs or kwargs['user_id'] < 0:
+        return None  # Block the event
+    return kwargs
+
+broker.register_transformer('user.*', validate_user)
+broker.emit('user.login', user_id=-1)  # Blocked - no subscribers called
+```
+
+### Priority Execution
+
+Higher priority transformers execute first:
+
+```python
+def step1(namespace: str, kwargs: dict) -> dict:
+    kwargs['step'] = 1
+    return kwargs
+
+def step2(namespace: str, kwargs: dict) -> dict:
+    kwargs['step'] = 2
+    return kwargs
+
+broker.register_transformer('pipeline', step1, priority=10)  # Runs first
+broker.register_transformer('pipeline', step2, priority=5)   # Runs second
+```
+
+### Transformer Exception Handling
+
+Transformers support exception handlers similar to subscriber handlers:
+
+```python
+from broker import handlers
+
+# Stop on transformer errors (logs and blocks event)
+broker.set_transformer_exception_handler(
+    handlers.stop_and_log_transformer_exception
+)
+
+# Silent mode - ignore transformer errors and continue
+broker.set_transformer_exception_handler(
+    handlers.silent_transformer_exception
+)
+
+# Collect transformer errors for review
+handlers.transformer_exceptions_caught.clear()
+broker.set_transformer_exception_handler(
+    handlers.collecting_transformer_exception
+)
+
+# Custom handler
+def custom_handler(transformer, namespace, exception):
+    print(f"Transformer error: {exception}")
+    return False  # Continue with next transformer
+
+broker.set_transformer_exception_handler(custom_handler)
+
+# Disable handler (re-raise exceptions)
+broker.set_transformer_exception_handler(None)
+```
+
+### Common Use Cases
+
+**Data enrichment:**
+```python
+def enrich_user_data(namespace: str, kwargs: dict) -> dict:
+    if 'user_id' in kwargs:
+        kwargs['user_name'] = get_user_name(kwargs['user_id'])
+    return kwargs
+```
+
+**Validation:**
+```python
+def validate_required_fields(namespace: str, kwargs: dict) -> dict | None:
+    required = ['id', 'action']
+    if not all(field in kwargs for field in required):
+        return None  # Block invalid events
+    return kwargs
+```
+
+**Logging:**
+```python
+def log_events(namespace: str, kwargs: dict) -> dict:
+    print(f"[{namespace}] {kwargs}")
+    return kwargs  # Don't modify, just observe
+```
+
+**Normalization:**
+```python
+from pathlib import Path
+
+def normalize_paths(namespace: str, kwargs: dict) -> dict:
+    if 'filepath' in kwargs:
+        kwargs['filepath'] = str(Path(kwargs['filepath']).absolute())
+    return kwargs
+```
 
 ## Broker Event Notification
 

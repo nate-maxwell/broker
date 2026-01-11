@@ -12,7 +12,7 @@ validate correct calls.
 """
 
 # The doc strings for each function exists in the stubs at the bottom of the
-# module, for intellisense fetching, instead of in the broker class.
+# module, for intellisense fetching, instead of in the broker class itself.
 # _methods() within the broker class do contain proper doc strings.
 
 import sys
@@ -40,11 +40,12 @@ from typing import Optional
 from typing import Union
 
 from broker import handlers
+from broker import transformer
 from broker import subscriber
 
 
 version_major = 1
-version_minor = 4
+version_minor = 5
 version_patch = 0
 __version__ = f"{version_major}.{version_minor}.{version_patch}"
 
@@ -57,6 +58,14 @@ The broker's record of each namespace to subscribers.
 This is kept outside of the replaced module class to create a protected
 closure around the event namespace:subscriber structure.
 """
+
+_TRANSFORMERS: dict[str, list[transformer.Transformer]] = {}
+"""Registry of transformers by namespace pattern."""
+
+_TRANSFORMER_EXCEPTION_HANDLER: Optional[transformer.TRANSFORMER_EXCEPTION_HANDLER] = (
+    None
+)
+"""Exception handler for transformer errors."""
 
 _NAMESPACE_SIGNATURES: dict[str, Optional[set[str]]] = {}
 """Track the expected keyword arguments for each namespace."""
@@ -149,6 +158,7 @@ class Broker(ModuleType):
     # ---Modules---
     handlers = handlers
     subscriber = subscriber
+    transformer = transformer
     # -------------------------------------------------------------------------
 
     def __init__(self, name: str) -> None:
@@ -157,9 +167,13 @@ class Broker(ModuleType):
 
         self.subscribe = _make_subscribe_decorator(self)
 
-        self._exception_handler: Optional[handlers.EXCEPTION_HANDLER] = (
-            handlers.stop_and_log_exception_handler
-        )
+        self._subscriptions_exception_handler: Optional[
+            handlers.SUBSCRIPTION_EXCEPTION_HANDLER
+        ] = handlers.stop_and_log_exception_handler
+
+        self._transformer_exception_handler: Optional[
+            handlers.TRANSFORMER_EXCEPTION_HANDLER
+        ] = handlers.stop_and_log_transformer_exception
 
         # -----Notifies-----
         self.notify_on_all: bool = False
@@ -176,6 +190,7 @@ class Broker(ModuleType):
     def clear() -> None:
         _SUBSCRIBERS.clear()
         _NAMESPACE_SIGNATURES.clear()
+        _TRANSFORMERS.clear()
 
     # -----Subscriber Management-----------------------------------------------
 
@@ -317,14 +332,18 @@ class Broker(ModuleType):
                 )
 
     def set_exception_handler(
-        self, handler: Optional[handlers.EXCEPTION_HANDLER]
+        self, handler: Optional[handlers.SUBSCRIPTION_EXCEPTION_HANDLER]
     ) -> None:
-        self._exception_handler = handler
+        self._subscriptions_exception_handler = handler
 
     # -----Emitter Handling----------------------------------------------------
 
     def emit(self, namespace: str, **kwargs: Any) -> None:
         self._validate_emit_args(namespace, kwargs)
+
+        transformed_kwargs = self.apply_transformers(namespace, kwargs)
+        if transformed_kwargs is None:
+            return  # Event blocked
 
         for sub_namespace, subscribers in _SUBSCRIBERS.items():
             if self._matches(namespace, sub_namespace):
@@ -336,10 +355,12 @@ class Broker(ModuleType):
 
                     if callback is not None and not sub.is_async:
                         try:
-                            callback(**kwargs)
+                            callback(**transformed_kwargs)
                         except Exception as e:
-                            if self._exception_handler is not None:
-                                stop = self._exception_handler(callback, namespace, e)
+                            if self._subscriptions_exception_handler is not None:
+                                stop = self._subscriptions_exception_handler(
+                                    callback, namespace, e
+                                )
                                 if stop:
                                     break
                             else:
@@ -352,6 +373,10 @@ class Broker(ModuleType):
 
     async def emit_async(self, namespace: str, **kwargs: Any) -> None:
         self._validate_emit_args(namespace, kwargs)
+
+        transformed_kwargs = self.apply_transformers(namespace, kwargs)
+        if transformed_kwargs is None:
+            return  # Event blocked
 
         for sub_namespace, subscribers in _SUBSCRIBERS.items():
             if self._matches(namespace, sub_namespace):
@@ -366,12 +391,14 @@ class Broker(ModuleType):
 
                     try:
                         if sub.is_async:
-                            await callback(**kwargs)
+                            await callback(**transformed_kwargs)
                         else:
-                            callback(**kwargs)
+                            callback(**transformed_kwargs)
                     except Exception as e:
-                        if self._exception_handler is not None:
-                            stop = self._exception_handler(callback, namespace, e)
+                        if self._subscriptions_exception_handler is not None:
+                            stop = self._subscriptions_exception_handler(
+                                callback, namespace, e
+                            )
                             if stop:
                                 break
                         else:
@@ -383,28 +410,114 @@ class Broker(ModuleType):
             self.emit(namespace=BROKER_ON_EMIT_ASYNC, using=namespace)
 
     @staticmethod
-    def _matches(event_namespace: str, subscriber_namespace: str) -> bool:
+    def _matches(namespace: str, pattern: str) -> bool:
         """
-        Check if an event namespace matches a subscriber namespace.
+        Check if an event namespace matches a pattern, typically another item's
+        namespace.
 
         Args:
-            event_namespace (str): The namespace where event was emitted.
-            subscriber_namespace (str): The namespace a subscriber registered
-              under.
+            namespace (str): The namespace where event was emitted.
+            pattern (str): The namespace to check against.
         Returns:
             bool: True if subscriber should receive the event.
         """
-        if event_namespace == subscriber_namespace:
+        if namespace == pattern:
             return True
 
         # Wildcard match - subscriber wants all events under a root
-        if subscriber_namespace.endswith(".*"):
+        if pattern.endswith(".*"):
             # Although not strictly necessary to remove . and *, doing so adds
             # slightly more validity to the check.
-            root = subscriber_namespace[:-2]
-            return event_namespace.startswith(root + ".")
+            root = pattern[:-2]
+            return namespace.startswith(root + ".")
 
         return False
+
+    # -----Transformers--------------------------------------------------------
+
+    @staticmethod
+    def register_transformer(
+        namespace: str, transformer_: transformer.TRANSFORMER, priority: int = 0
+    ) -> None:
+        if namespace not in _TRANSFORMERS:
+            _TRANSFORMERS[namespace] = []
+
+        transformer_obj = transformer.Transformer(
+            callback=transformer_, namespace=namespace, priority=priority
+        )
+
+        _TRANSFORMERS[namespace].append(transformer_obj)
+        _TRANSFORMERS[namespace].sort(key=lambda t: t.priority, reverse=True)
+
+    @staticmethod
+    def unregister_transformer(
+        namespace: str, transformer_: transformer.TRANSFORMER
+    ) -> None:
+        if namespace in _TRANSFORMERS:
+            _TRANSFORMERS[namespace] = [
+                t for t in _TRANSFORMERS[namespace] if t.callback != transformer_
+            ]
+
+            if not _TRANSFORMERS[namespace]:
+                del _TRANSFORMERS[namespace]
+
+    @staticmethod
+    def set_transformer_exception_handler(
+        handler: Optional[transformer.TRANSFORMER_EXCEPTION_HANDLER],
+    ) -> None:
+        """Set the exception handler for transformer errors."""
+        global _TRANSFORMER_EXCEPTION_HANDLER
+        _TRANSFORMER_EXCEPTION_HANDLER = handler
+
+    def apply_transformers(
+        self, namespace: str, kwargs: dict[str, Any]
+    ) -> Optional[dict[str, Any]]:
+        matching_transformers = []
+
+        for transformer_ns, transformers in _TRANSFORMERS.items():
+            if self._matches(namespace, transformer_ns):
+                matching_transformers.extend(transformers)
+
+        matching_transformers.sort(key=lambda t: t.priority, reverse=True)
+        current_kwargs = kwargs.copy()  # Don't modify original
+
+        for transformer_ in matching_transformers:
+            try:
+                result = transformer_.callback(namespace, current_kwargs)
+                if result is None:
+                    return None  # Transformer blocked the event
+
+                current_kwargs = result
+
+            except Exception as e:
+                if _TRANSFORMER_EXCEPTION_HANDLER is not None:
+                    stop = self._transformer_exception_handler(
+                        transformer_.callback, namespace, e
+                    )
+                    if stop:
+                        return None
+                else:
+                    transformer_name = handlers.get_callable_name(transformer_.callback)
+                    raise RuntimeError(
+                        f"Transformer '{transformer_name}' failed for namespace '{namespace}': {e}"
+                    ) from e
+
+        return current_kwargs
+
+    @staticmethod
+    def clear_transformers() -> None:
+        """Clear all registered transformers."""
+        _TRANSFORMERS.clear()
+
+    @staticmethod
+    def get_transformers(namespace: str) -> list[transformer.Transformer]:
+        """Get all transformers registered for a namespace."""
+        return list(_TRANSFORMERS.get(namespace, []))
+
+    @staticmethod
+    def get_all_transformer_namespaces() -> list[str]:
+        """Get all namespaces that have transformers."""
+        return sorted(_TRANSFORMERS.keys())
 
     # -----Notifies + Helpers--------------------------------------------------
 
@@ -427,6 +540,8 @@ class Broker(ModuleType):
         self.notify_on_emit_all = on_emit_all
         self.notify_on_new_namespace = on_new_namespace
         self.notify_on_del_namespace = on_del_namespace
+
+    # -----Introspection API---------------------------------------------------
 
     @staticmethod
     def to_dict() -> dict:
@@ -476,8 +591,6 @@ class Broker(ModuleType):
         """Export broker structure to filepath."""
         with open(filepath, "w") as outfile:
             json.dump(self.to_dict(), outfile, indent=4)
-
-    # -----Introspection API---------------------------------------------------
 
     @staticmethod
     def get_namespaces() -> list[str]:
@@ -658,7 +771,9 @@ def unregister_subscriber(namespace: str, callback: subscriber.CALLBACK) -> None
 
 
 # noinspection PyUnusedLocal
-def set_exception_handler(handler: Optional[handlers.EXCEPTION_HANDLER]) -> None:
+def set_exception_handler(
+    handler: Optional[handlers.SUBSCRIPTION_EXCEPTION_HANDLER],
+) -> None:
     """
     Set the exception handler for subscriber errors.
     The handler is called when a subscriber raises an exception during emit.
@@ -728,6 +843,76 @@ async def emit_async(namespace: str, **kwargs: Any) -> None:
         -Emits a notify event after args have been sent to subscribers.
         Notify emits the used namespace.
     """
+
+
+# noinspection PyUnusedLocal
+def register_transformer(
+    namespace: str, transformer_: transformer.TRANSFORMER, priority: int = 0
+) -> None:
+    """
+    Register a transformer for a namespace.
+
+    Transformers intercept events before they reach subscribers and can:
+    - Modify event arguments
+    - Block event propagation
+    - Log/validate events
+
+    Args:
+        namespace (str): Namespace pattern (supports wildcards like 'system.*').
+        transformer_ (TRANSFORMER): Function that receives (namespace, kwargs)
+            and returns modified kwargs or None to block.
+        priority (int): Execution order (higher = earlier, default 0).
+    Example:
+        def add_timestamp(namespace: str, kwargs: dict) -> dict:
+            kwargs['timestamp'] = time.time()
+            return kwargs
+
+        broker.register_transformer('system.*', add_timestamp, priority=10)
+    """
+
+
+# noinspection PyUnusedLocal
+def unregister_transformer(
+    namespace: str, transformer_: transformer.TRANSFORMER
+) -> None:
+    """
+    Remove a transformer from a namespace.
+
+    Args:
+        namespace (str): The namespace the transformer is registered to.
+        transformer_ (TRANSFORMER): The transformer function to remove.
+    """
+
+
+# noinspection PyUnusedLocal
+def apply_transformers(
+    namespace: str, kwargs: dict[str, Any]
+) -> Optional[dict[str, Any]]:
+    """
+    Apply all matching transformers to event kwargs.
+
+    Transformers execute in priority order. If any transformer returns None,
+    propagation stops and the event is blocked.
+
+    Args:
+        namespace (str): The event namespace being emitted.
+        kwargs (dict[str, Any]): The event arguments.
+    Returns:
+        Modified kwargs dict, or None if event was blocked
+    """
+
+
+def clear_transformers() -> None:
+    """Clear all registered transformers."""
+
+
+# noinspection PyUnusedLocal
+def get_transformers(namespace: str) -> list[transformer.Transformer]:
+    """Get all transformers registered for a namespace."""
+
+
+def get_all_transformer_namespaces() -> list[str]:
+    """Get all namespaces that have transformers."""
 
 
 # noinspection PyUnusedLocal
