@@ -863,8 +863,9 @@ def register_transformer(
             and returns modified kwargs or None to block.
         priority (int): Execution order (higher = earlier, default 0).
     Example:
-        def add_timestamp(namespace: str, kwargs: dict) -> dict:
+        def add_timestamp(namespace: str, kwargs: dict[str, Any]) -> dict:
             kwargs['timestamp'] = time.time()
+
             return kwargs
 
         broker.register_transformer('system.*', add_timestamp, priority=10)
