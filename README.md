@@ -3,11 +3,26 @@
 A simple message broker system for python.
 Supports sync and async events.
 
-## Namespaces
+## Subscribing and Namespaces
+
+Subscriptions can be done either by decorating functions or static methods, or
+by using `broker.register_subscriber("namespace", callback)`.
 
 End-points can subscribe to namespaces using dot notation like
 `system.io.file_opened` or wildcard namespace subscriptions for specific levels
 downwards like `system.io.*`.
+
+```python
+import broker
+
+@broker.subscribe("system.io.file")
+def print_filename(filename: str) -> None:
+    print(f'User is attempting to access file: {filename}')
+
+# --or--
+
+broker.register_subscriber("system.io.file", print_filename)
+```
  
 ## Priorities
 
@@ -235,13 +250,18 @@ This is easily achieved using broker constants like so:
 @broker.subscribe(broker.BROKER_ON_SUBSCRIBER_ADDED)
 def on_subscriber_added(using: str) -> None:
     print(f'New subscriber to namespace: {using}')
-
-# --or--
-
-broker.register_subscriber(broker.BROKER_ON_SUBSCRIBER_ADDED, on_subscriber_added)
 ```
-* Note that this decorator does not work with instance bound class methods. It
-works with regular functions or static methods.
+
+Available notifications are:
+* BROKER_ON_SUBSCRIBER_ADDED
+* BROKER_ON_SUBSCRIBER_REMOVED
+* BROKER_ON_SUBSCRIBER_COLLECTED
+* BROKER_ON_EMIT
+* BROKER_ON_EMIT_ASYNC
+* BROKER_ON_EMIT_ALL
+* BROKER_ON_NAMESPACE_CREATED
+* BROKER_ON_NAMESPACE_DELETED
+
 
 ## Reimport Protection
 
