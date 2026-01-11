@@ -46,7 +46,7 @@ from broker import subscriber
 
 version_major = 1
 version_minor = 5
-version_patch = 0
+version_patch = 1
 __version__ = f"{version_major}.{version_minor}.{version_patch}"
 
 StrOrPath = Union[str, os.PathLike]
@@ -233,7 +233,7 @@ class Broker(ModuleType):
     def register_subscriber(
         self, namespace: str, callback: subscriber.CALLBACK, priority: int = 0
     ) -> None:
-        callback_params = Broker._get_callback_params(callback)
+        callback_params = self._get_callback_params(callback)
         is_async = asyncio.iscoroutinefunction(callback)
         weak_callback = _make_weak_ref(callback, namespace, self._on_callback_collected)
         sub = subscriber.Subscriber(
@@ -300,8 +300,7 @@ class Broker(ModuleType):
                 ):
                     self.emit(namespace=BROKER_ON_NAMESPACE_DELETED, using=namespace)
 
-    @staticmethod
-    def _validate_emit_args(namespace: str, kwargs: dict[str, Any]) -> None:
+    def _validate_emit_args(self, namespace: str, kwargs: dict[str, Any]) -> None:
         """
         Validate that emit arguments match subscriber signatures.
 
@@ -315,7 +314,7 @@ class Broker(ModuleType):
 
         matching_namespaces = []
         for sub_namespace in _SUBSCRIBERS.keys():
-            if Broker._matches(namespace, sub_namespace):
+            if self._matches(namespace, sub_namespace):
                 matching_namespaces.append(sub_namespace)
 
         for sub_namespace in matching_namespaces:
@@ -640,15 +639,12 @@ class Broker(ModuleType):
             return []
         return [sub for sub in _SUBSCRIBERS[namespace] if sub.callback is not None]
 
-    @staticmethod
-    def get_matching_namespaces(pattern: str) -> list[str]:
+    def get_matching_namespaces(self, pattern: str) -> list[str]:
         matching = []
         for namespace in _SUBSCRIBERS.keys():
             # Pattern 'system.io.*' should match namespace 'system.io.file'
             # OR namespace 'system.*' should match pattern 'system.io.file'
-            if Broker._matches(namespace, pattern) or Broker._matches(
-                pattern, namespace
-            ):
+            if self._matches(namespace, pattern) or self._matches(pattern, namespace):
                 matching.append(namespace)
         return sorted(matching)
 
@@ -670,10 +666,9 @@ class Broker(ModuleType):
             "priorities": sorted(set(sub.priority for sub in live_subs), reverse=True),
         }
 
-    @staticmethod
-    def get_all_namespace_info() -> dict[str, dict[str, object]]:
+    def get_all_namespace_info(self) -> dict[str, dict[str, object]]:
         return {
-            namespace: Broker.get_namespace_info(namespace)
+            namespace: self.get_namespace_info(namespace)
             for namespace in _SUBSCRIBERS.keys()
         }
 
