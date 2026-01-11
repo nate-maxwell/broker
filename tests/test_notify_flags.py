@@ -8,6 +8,16 @@ These tests are simplistic. They primarily subscribe to the pre-existing
 namespace and check that a message was received.
 """
 
+# -----------------------------------------------------------------------------
+# Many of the tests are attempting to verify data within the broker, but the
+# broker uses a protective closure to make the subscriber table difficult to
+# access.
+
+# The work-around is to create functions that append results to a local table,
+# list, or other collection and validate that the collection contains the
+# expected items.
+# -----------------------------------------------------------------------------
+
 import broker
 
 

@@ -7,6 +7,16 @@ not keep the object alive by maintaining a reference and should notify invested
 systems that the item was culled.
 """
 
+# -----------------------------------------------------------------------------
+# Many of the tests are attempting to verify data within the broker, but the
+# broker uses a protective closure to make the subscriber table difficult to
+# access.
+
+# The work-around is to create functions that append results to a local table,
+# list, or other collection and validate that the collection contains the
+# expected items.
+# -----------------------------------------------------------------------------
+
 import gc
 
 import pytest
