@@ -40,6 +40,24 @@ def test_transformer_modifies_kwargs() -> None:
     assert received_kwargs[0]["added_field"] == "added_value"
 
 
+def test_transform_decorator_basic() -> None:
+    """Test basic transformer registration using decorator."""
+    broker.clear()
+    broker.clear_transformers()
+
+    @broker.transform("test.event")
+    def add_field(namespace: str, kwargs: dict) -> dict:
+        kwargs["added"] = True
+        return kwargs
+
+    # Verify transformer was registered
+    transformers = broker.get_transformers("test.event")
+    assert len(transformers) == 1
+    assert transformers[0].callback == add_field
+    assert transformers[0].priority == 0
+    assert transformers[0].namespace == "test.event"
+
+
 def test_transformer_can_block_event() -> None:
     """Test that returning None blocks event propagation."""
     broker.clear()

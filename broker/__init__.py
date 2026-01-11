@@ -45,8 +45,8 @@ from broker import subscriber
 
 
 version_major = 1
-version_minor = 5
-version_patch = 1
+version_minor = 6
+version_patch = 0
 __version__ = f"{version_major}.{version_minor}.{version_patch}"
 
 StrOrPath = Union[str, os.PathLike]
@@ -115,8 +115,9 @@ def _make_subscribe_decorator(broker_module: "Broker") -> Callable:
     it using a python namespace and thus creating a circular reference.
     """
 
-    def subscribe_(namespace: str, priority: int = 0) -> subscriber.CALLBACK:
-
+    def subscribe_(
+        namespace: str, priority: int = 0
+    ) -> Callable[[subscriber.CALLBACK], subscriber.CALLBACK]:
         def decorator(func: subscriber.CALLBACK) -> subscriber.CALLBACK:
             broker_module.register_subscriber(namespace, func, priority)
             return func
@@ -124,6 +125,27 @@ def _make_subscribe_decorator(broker_module: "Broker") -> Callable:
         return decorator
 
     return subscribe_
+
+
+def _make_transformer_decorator(broker_module: "Broker") -> Callable:
+    """
+    Create a transform decorator with access to the broker module.
+
+    This exists as a function accepting the broker module as an argument so the
+    function can call register_subscriber() on the broker without referring to
+    it using a python namespace and thus creating a circular reference.
+    """
+
+    def transform_(
+        namespace: str, priority: int = 0
+    ) -> Callable[[transformer.TRANSFORMER], transformer.TRANSFORMER]:
+        def decorator(func: transformer.TRANSFORMER) -> transformer.TRANSFORMER:
+            broker_module.register_transformer(namespace, func, priority)
+            return func
+
+        return decorator
+
+    return transform_
 
 
 class Broker(ModuleType):
@@ -166,6 +188,7 @@ class Broker(ModuleType):
         assert self._BROKER_IMPORT_GUARD is True
 
         self.subscribe = _make_subscribe_decorator(self)
+        self.transform = _make_transformer_decorator(self)
 
         self._subscriptions_exception_handler: Optional[
             handlers.SUBSCRIPTION_EXCEPTION_HANDLER
@@ -912,7 +935,9 @@ def get_all_transformer_namespaces() -> list[str]:
 
 
 # noinspection PyUnusedLocal
-def subscribe(namespace: str, priority: int = 0) -> subscriber.CALLBACK:
+def subscribe(
+    namespace: str, priority: int = 0
+) -> Callable[[subscriber.CALLBACK], subscriber.CALLBACK]:
     """
     Decorator to register a function or static method as a subscriber.
 
@@ -928,6 +953,29 @@ def subscribe(namespace: str, priority: int = 0) -> subscriber.CALLBACK:
         priority (int): The execution priority. Defaults to 0.
     Returns:
         Callable: Decorator function that registers the subscriber.
+    """
+
+
+# noinspection PyUnusedLocal
+def transform(
+    namespace: str, priority: int = 0
+) -> Callable[[transformer.TRANSFORMER], transformer.TRANSFORMER]:
+    """
+    Decorator to register a function or static method as a transformer.
+
+    To register an instance referencing class method (one using 'self'),
+    use broker.register_transformer('source', 'event_name', self.method).
+
+    Usage:
+        @transform('system.file.io', 5)
+        def add_timestamp(namespace: str, kwargs: dict) -> dict:
+            kwargs['timestamp'] = time.time()
+            return kwargs
+    Args:
+        namespace (str): The event namespace to transform data for.
+        priority (int): The execution priority. Defaults to 0.
+    Returns:
+        Callable: Decorator function that registers the transformer.
     """
 
 

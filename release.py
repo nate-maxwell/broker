@@ -30,7 +30,7 @@ def get_current_version_from_toml() -> tuple[int, int, int]:
 
 def update_python_version(new_version: tuple[int, int, int]) -> None:
     """Update version constants in Python file."""
-    content = BROKER_PATH.read_text()
+    content = BROKER_PATH.read_text(encoding="utf-8")
 
     major, minor, patch = new_version
 
