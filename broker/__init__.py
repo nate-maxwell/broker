@@ -263,30 +263,6 @@ class Broker(ModuleType):
             if param.kind != inspect.Parameter.VAR_POSITIONAL  # exclude *args
         }
 
-    @staticmethod
-    def _ensure_namespace_exists(namespace: str) -> None:
-        """Ensure namespace entry exists in registry."""
-        if namespace not in _NAMESPACE_REGISTRY:
-            _NAMESPACE_REGISTRY[namespace] = {
-                "subscribers": [],
-                "transformers": [],
-                "signature": None,
-            }
-
-    def _cleanup_namespace_if_empty(self, namespace: str) -> None:
-        """Remove namespace from registry if it has no subscribers or transformers."""
-        if namespace not in _NAMESPACE_REGISTRY:
-            return
-
-        entry = _NAMESPACE_REGISTRY[namespace]
-        if not entry["subscribers"] and not entry["transformers"]:
-            del _NAMESPACE_REGISTRY[namespace]
-            if (
-                not namespace.startswith(_NOTIFY_NAMESPACE_ROOT)
-                and self.notify_on_del_namespace
-            ):
-                self.emit(namespace=BROKER_ON_NAMESPACE_DELETED, using=namespace)
-
     def _on_subscriber_collected(self, namespace: str) -> None:
         """Called when a subscriber is garbage collected."""
         if namespace in _NAMESPACE_REGISTRY:
@@ -306,26 +282,6 @@ class Broker(ModuleType):
             _NOTIFY_NAMESPACE_ROOT
         ):
             self.emit(namespace=BROKER_ON_SUBSCRIBER_COLLECTED, using=namespace)
-
-    def _on_transformer_collected(self, namespace: str) -> None:
-        """Called when a transformer is garbage collected."""
-        if namespace in _NAMESPACE_REGISTRY:
-            entry = _NAMESPACE_REGISTRY[namespace]
-            entry["transformers"] = [
-                t for t in entry["transformers"] if t.callback is not None
-            ]
-
-            if self._cleanup_namespace_if_empty(namespace):
-                if (
-                    not namespace.startswith(_NOTIFY_NAMESPACE_ROOT)
-                    and self.notify_on_del_namespace
-                ):
-                    self.emit(namespace=BROKER_ON_NAMESPACE_DELETED, using=namespace)
-
-        if self.notify_on_transformer_collected and not namespace.startswith(
-            _NOTIFY_NAMESPACE_ROOT
-        ):
-            self.emit(namespace=BROKER_ON_TRANSFORMER_COLLECTED, using=namespace)
 
     def register_subscriber(
         self, namespace: str, callback: subscriber.SUBSCRIBER, priority: int = 0
@@ -501,6 +457,26 @@ class Broker(ModuleType):
 
     # -----Transformers--------------------------------------------------------
 
+    def _on_transformer_collected(self, namespace: str) -> None:
+        """Called when a transformer is garbage collected."""
+        if namespace in _NAMESPACE_REGISTRY:
+            entry = _NAMESPACE_REGISTRY[namespace]
+            entry["transformers"] = [
+                t for t in entry["transformers"] if t.callback is not None
+            ]
+
+            if self._cleanup_namespace_if_empty(namespace):
+                if (
+                    not namespace.startswith(_NOTIFY_NAMESPACE_ROOT)
+                    and self.notify_on_del_namespace
+                ):
+                    self.emit(namespace=BROKER_ON_NAMESPACE_DELETED, using=namespace)
+
+        if self.notify_on_transformer_collected and not namespace.startswith(
+            _NOTIFY_NAMESPACE_ROOT
+        ):
+            self.emit(namespace=BROKER_ON_TRANSFORMER_COLLECTED, using=namespace)
+
     def register_transformer(
         self,
         namespace: str,
@@ -670,6 +646,30 @@ class Broker(ModuleType):
             return namespace.startswith(root + ".")
 
         return False
+
+    def _cleanup_namespace_if_empty(self, namespace: str) -> None:
+        """Remove namespace from registry if it has no subscribers or transformers."""
+        if namespace not in _NAMESPACE_REGISTRY:
+            return
+
+        entry = _NAMESPACE_REGISTRY[namespace]
+        if not entry["subscribers"] and not entry["transformers"]:
+            del _NAMESPACE_REGISTRY[namespace]
+            if (
+                not namespace.startswith(_NOTIFY_NAMESPACE_ROOT)
+                and self.notify_on_del_namespace
+            ):
+                self.emit(namespace=BROKER_ON_NAMESPACE_DELETED, using=namespace)
+
+    @staticmethod
+    def _ensure_namespace_exists(namespace: str) -> None:
+        """Ensure namespace entry exists in registry."""
+        if namespace not in _NAMESPACE_REGISTRY:
+            _NAMESPACE_REGISTRY[namespace] = {
+                "subscribers": [],
+                "transformers": [],
+                "signature": None,
+            }
 
     # -----Introspection API---------------------------------------------------
 
