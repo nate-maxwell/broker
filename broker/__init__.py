@@ -7,14 +7,16 @@ protective closure around the subscriber namespace table.
 A reimport protection clause exists at the top of the file to prevent the
 subscribers table from being lost on import.
 
-Function stubs exist at the bottom of the file for static type checkers to
-validate correct calls.
+Function stubs exist in the stubs file for static type checkers to validate
+correct calls.
 
 For a complete breakdown of broker functionality, read the project readme.
 """
 
-# The doc strings for each function exists in the stubs at the bottom of the
-# module, for intellisense fetching, instead of in the broker class itself.
+# The doc strings for each function exists in the stubs module, for
+# intellisense fetching, instead of in the broker class itself.
+# The broker is a module type class that replaces the module at runtime, so
+# intellisense will not parse the correct namespace.
 # _methods() within the broker class do contain proper doc strings.
 
 import sys
