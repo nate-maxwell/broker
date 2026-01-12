@@ -23,9 +23,9 @@ def test_record_protected() -> None:
     """Test that the subscriber dict in the broker is protected by closure."""
     broker.clear()
     try:
-        _ = "foo" in broker._SUBSCRIBERS
+        _ = "foo" in broker._NAMESPACE_REGISTRY
     except Exception as e:
-        assert type(e) == AttributeError
+        assert type(e) is AttributeError
 
 
 def test_subscriber_registration() -> None:

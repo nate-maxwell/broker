@@ -9,6 +9,8 @@ subscribers table from being lost on import.
 
 Function stubs exist at the bottom of the file for static type checkers to
 validate correct calls.
+
+For a complete breakdown of broker functionality, read the project readme.
 """
 
 # The doc strings for each function exists in the stubs at the bottom of the
@@ -17,6 +19,7 @@ validate correct calls.
 
 import sys
 
+# -----------------------------------------------------------------------------
 # Prevent module reload - subscribers table would be lost!
 if "broker" in sys.modules:
     existing_module = sys.modules["broker"]
@@ -27,66 +30,63 @@ if "broker" in sys.modules:
             "Restart your Python session to reimport."
         )
 _BROKER_IMPORT_GUARD = True
+# -----------------------------------------------------------------------------
 
 import asyncio
 import inspect
 import json
-import os
 import weakref
 from types import ModuleType
-from typing import Any
-from typing import Callable
-from typing import Optional
 from typing import Union
 
+from broker.stub import *
 from broker import handlers
 from broker import transformer
 from broker import subscriber
+from broker import namespaces
 
 
 version_major = 1
-version_minor = 6
+version_minor = 7
 version_patch = 0
 __version__ = f"{version_major}.{version_minor}.{version_patch}"
 
-StrOrPath = Union[str, os.PathLike]
-
-_SUBSCRIBERS: dict[str, list[subscriber.Subscriber]] = {}
+_NAMESPACE_REGISTRY: dict[str, namespaces.NamespaceEntry] = {}
 """
-The broker's record of each namespace to subscribers.
-
-This is kept outside of the replaced module class to create a protected
-closure around the event namespace:subscriber structure.
+Global namespace registry.
+Each namespace tracks its subscribers, transformers, and expected signature.
+A namespace exists if it has at least one subscriber OR transformer.
 """
 
-_TRANSFORMERS: dict[str, list[transformer.Transformer]] = {}
-"""Registry of transformers by namespace pattern."""
-
-_TRANSFORMER_EXCEPTION_HANDLER: Optional[transformer.TRANSFORMER_EXCEPTION_HANDLER] = (
-    None
-)
-"""Exception handler for transformer errors."""
-
-_NAMESPACE_SIGNATURES: dict[str, Optional[set[str]]] = {}
-"""Track the expected keyword arguments for each namespace."""
-
+# -----Notifies----------------------------------------------------------------
 _NOTIFY_NAMESPACE_ROOT = "broker.notify."
+
 BROKER_ON_SUBSCRIBER_ADDED = f"{_NOTIFY_NAMESPACE_ROOT}subscriber.added"
 BROKER_ON_SUBSCRIBER_REMOVED = f"{_NOTIFY_NAMESPACE_ROOT}subscriber.removed"
 BROKER_ON_SUBSCRIBER_COLLECTED = f"{_NOTIFY_NAMESPACE_ROOT}subscriber.collected"
+
+BROKER_ON_TRANSFORMER_ADDED = f"{_NOTIFY_NAMESPACE_ROOT}transformer.added"
+BROKER_ON_TRANSFORMER_REMOVED = f"{_NOTIFY_NAMESPACE_ROOT}transformer.removed"
+BROKER_ON_TRANSFORMER_COLLECTED = f"{_NOTIFY_NAMESPACE_ROOT}transformer.collected"
+
 BROKER_ON_EMIT = f"{_NOTIFY_NAMESPACE_ROOT}emit.sync"
 BROKER_ON_EMIT_ASYNC = f"{_NOTIFY_NAMESPACE_ROOT}emit.async"
 BROKER_ON_EMIT_ALL = f"{_NOTIFY_NAMESPACE_ROOT}emit.all"
+
 BROKER_ON_NAMESPACE_CREATED = f"{_NOTIFY_NAMESPACE_ROOT}namespace.created"
 BROKER_ON_NAMESPACE_DELETED = f"{_NOTIFY_NAMESPACE_ROOT}namespace.deleted"
 
 
+# -----Exceptions--------------------------------------------------------------
 class SignatureMismatchError(Exception):
     """Raised when callback signatures don't match for a namespace."""
 
 
 class EmitArgumentError(Exception):
     """Raised when emit arguments don't match subscriber signatures."""
+
+
+# -----------------------------------------------------------------------------
 
 
 def _make_weak_ref(
@@ -156,12 +156,22 @@ class Broker(ModuleType):
     Supports both synchronous and asynchronous subscribers.
     Use emit() for fire-and-forget behavior.
     Use emit_async() to await all subscribers.
+
+    To manage subscribers use
+    register_subscriber() and unregister_subscriber(),
+    or decorate with @subscribe.
+
+    To manage transformers use
+    register_transformer() and unregister_transformer(),
+    or decorate with @transform.
     """
 
     # -----Runtime Closures----------------------------------------------------
     # ---Constants---
     __version__ = __version__
     _BROKER_IMPORT_GUARD = _BROKER_IMPORT_GUARD
+    # Explicitly refuse to make closure for _NAMESPACE_REGISTRY so it stays
+    # protected!
 
     # ---Exceptions---
     SignatureMismatchError = SignatureMismatchError
@@ -171,6 +181,9 @@ class Broker(ModuleType):
     BROKER_ON_SUBSCRIBER_ADDED = BROKER_ON_SUBSCRIBER_ADDED
     BROKER_ON_SUBSCRIBER_REMOVED = BROKER_ON_SUBSCRIBER_REMOVED
     BROKER_ON_SUBSCRIBER_COLLECTED = BROKER_ON_SUBSCRIBER_COLLECTED
+    BROKER_ON_TRANSFORMER_ADDED = BROKER_ON_TRANSFORMER_ADDED
+    BROKER_ON_TRANSFORMER_REMOVED = BROKER_ON_TRANSFORMER_REMOVED
+    BROKER_ON_TRANSFORMER_COLLECTED = BROKER_ON_TRANSFORMER_COLLECTED
     BROKER_ON_EMIT = BROKER_ON_EMIT
     BROKER_ON_EMIT_ASYNC = BROKER_ON_EMIT_ASYNC
     BROKER_ON_EMIT_ALL = BROKER_ON_EMIT_ALL
@@ -187,9 +200,11 @@ class Broker(ModuleType):
         super().__init__(name)
         assert self._BROKER_IMPORT_GUARD is True
 
+        # -----Decorators-----
         self.subscribe = _make_subscribe_decorator(self)
         self.transform = _make_transformer_decorator(self)
 
+        # -----Exception Handlers-----
         self._subscriptions_exception_handler: Optional[
             handlers.SUBSCRIPTION_EXCEPTION_HANDLER
         ] = handlers.stop_and_log_exception_handler
@@ -200,20 +215,25 @@ class Broker(ModuleType):
 
         # -----Notifies-----
         self.notify_on_all: bool = False
+
         self.notify_on_subscribe: bool = False
         self.notify_on_unsubscribe: bool = False
         self.notify_on_collected: bool = False
+
+        self.notify_on_transformer_add: bool = False
+        self.notify_on_transformer_remove: bool = False
+        self.notify_on_transformer_collected: bool = False
+
         self.notify_on_emit: bool = False
         self.notify_on_emit_async: bool = False
         self.notify_on_emit_all: bool = False
+
         self.notify_on_new_namespace: bool = False
         self.notify_on_del_namespace: bool = False
 
     @staticmethod
     def clear() -> None:
-        _SUBSCRIBERS.clear()
-        _NAMESPACE_SIGNATURES.clear()
-        _TRANSFORMERS.clear()
+        _NAMESPACE_REGISTRY.clear()
 
     # -----Subscriber Management-----------------------------------------------
 
@@ -241,17 +261,69 @@ class Broker(ModuleType):
             if param.kind != inspect.Parameter.VAR_POSITIONAL  # exclude *args
         }
 
+    @staticmethod
+    def _ensure_namespace_exists(namespace: str) -> None:
+        """Ensure namespace entry exists in registry."""
+        if namespace not in _NAMESPACE_REGISTRY:
+            _NAMESPACE_REGISTRY[namespace] = {
+                "subscribers": [],
+                "transformers": [],
+                "signature": None,
+            }
+
+    def _cleanup_namespace_if_empty(self, namespace: str) -> None:
+        """Remove namespace from registry if it has no subscribers or transformers."""
+        if namespace not in _NAMESPACE_REGISTRY:
+            return
+
+        entry = _NAMESPACE_REGISTRY[namespace]
+        if not entry["subscribers"] and not entry["transformers"]:
+            del _NAMESPACE_REGISTRY[namespace]
+            if (
+                not namespace.startswith(_NOTIFY_NAMESPACE_ROOT)
+                and self.notify_on_del_namespace
+            ):
+                self.emit(namespace=BROKER_ON_NAMESPACE_DELETED, using=namespace)
+
     def _on_callback_collected(self, namespace: str) -> None:
         """Called when a subscriber is garbage collected."""
-        if namespace in _SUBSCRIBERS:
-            _SUBSCRIBERS[namespace] = [
-                sub for sub in _SUBSCRIBERS[namespace] if sub.callback is not None
+        if namespace in _NAMESPACE_REGISTRY:
+            entry = _NAMESPACE_REGISTRY[namespace]
+            entry["subscribers"] = [
+                sub for sub in entry["subscribers"] if sub.callback is not None
             ]
+
+            if self._cleanup_namespace_if_empty(namespace):
+                if (
+                    not namespace.startswith(_NOTIFY_NAMESPACE_ROOT)
+                    and self.notify_on_del_namespace
+                ):
+                    self.emit(namespace=BROKER_ON_NAMESPACE_DELETED, using=namespace)
 
         if self.notify_on_collected and not namespace.startswith(
             _NOTIFY_NAMESPACE_ROOT
         ):
             self.emit(namespace=BROKER_ON_SUBSCRIBER_COLLECTED, using=namespace)
+
+    def _on_transformer_collected(self, namespace: str) -> None:
+        """Called when a transformer is garbage collected."""
+        if namespace in _NAMESPACE_REGISTRY:
+            entry = _NAMESPACE_REGISTRY[namespace]
+            entry["transformers"] = [
+                t for t in entry["transformers"] if t.callback is not None
+            ]
+
+            if self._cleanup_namespace_if_empty(namespace):
+                if (
+                    not namespace.startswith(_NOTIFY_NAMESPACE_ROOT)
+                    and self.notify_on_del_namespace
+                ):
+                    self.emit(namespace=BROKER_ON_NAMESPACE_DELETED, using=namespace)
+
+        if self.notify_on_transformer_collected and not namespace.startswith(
+            _NOTIFY_NAMESPACE_ROOT
+        ):
+            self.emit(namespace=BROKER_ON_TRANSFORMER_COLLECTED, using=namespace)
 
     def register_subscriber(
         self, namespace: str, callback: subscriber.CALLBACK, priority: int = 0
@@ -266,15 +338,17 @@ class Broker(ModuleType):
             namespace=namespace,
         )
 
-        # If this is the first subscriber for this namespace, store signature
-        if namespace not in _NAMESPACE_SIGNATURES:
-            _NAMESPACE_SIGNATURES[namespace] = callback_params
-        else:
-            existing_params = _NAMESPACE_SIGNATURES[namespace]
+        is_new_namespace = namespace not in _NAMESPACE_REGISTRY
+        self._ensure_namespace_exists(namespace)
+        entry = _NAMESPACE_REGISTRY[namespace]
 
-            # If either accepts **kwargs, they're compatible
+        # Validate/set signature
+        if entry["signature"] is None:
+            entry["signature"] = callback_params
+        else:
+            existing_params = entry["signature"]
             if existing_params is None or callback_params is None:
-                _NAMESPACE_SIGNATURES[namespace] = None
+                entry["signature"] = None
             elif existing_params != callback_params:
                 raise SignatureMismatchError(
                     f"Callback parameter mismatch for namespace '{namespace}'. "
@@ -282,15 +356,15 @@ class Broker(ModuleType):
                     f"but got: {sorted(callback_params)}"
                 )
 
-        if namespace not in _SUBSCRIBERS:
-            _SUBSCRIBERS[namespace] = []
-            if (
-                not namespace.startswith(_NOTIFY_NAMESPACE_ROOT)
-                and self.notify_on_new_namespace
-            ):
-                self.emit(namespace=BROKER_ON_NAMESPACE_CREATED, using=namespace)
+        entry["subscribers"].append(sub)
 
-        _SUBSCRIBERS[namespace].append(sub)
+        if (
+            is_new_namespace
+            and not namespace.startswith(_NOTIFY_NAMESPACE_ROOT)
+            and self.notify_on_new_namespace
+        ):
+            self.emit(namespace=BROKER_ON_NAMESPACE_CREATED, using=namespace)
+
         if (
             not namespace.startswith(_NOTIFY_NAMESPACE_ROOT)
             and self.notify_on_subscribe
@@ -300,28 +374,19 @@ class Broker(ModuleType):
     def unregister_subscriber(
         self, namespace: str, callback: subscriber.CALLBACK
     ) -> None:
-        if namespace in _SUBSCRIBERS:
-            _SUBSCRIBERS[namespace] = [
-                sub for sub in _SUBSCRIBERS[namespace] if sub.callback != callback
+        if namespace in _NAMESPACE_REGISTRY:
+            entry = _NAMESPACE_REGISTRY[namespace]
+            entry["subscribers"] = [
+                sub for sub in entry["subscribers"] if sub.callback != callback
             ]
+
             if (
                 not namespace.startswith(_NOTIFY_NAMESPACE_ROOT)
                 and self.notify_on_unsubscribe
             ):
                 self.emit(namespace=BROKER_ON_SUBSCRIBER_REMOVED, using=namespace)
 
-            # Clean up signature tracking if no subscribers left
-            if not _SUBSCRIBERS[namespace]:
-                del _SUBSCRIBERS[namespace]
-
-                if namespace in _NAMESPACE_SIGNATURES:
-                    del _NAMESPACE_SIGNATURES[namespace]
-
-                if (
-                    not namespace.startswith(_NOTIFY_NAMESPACE_ROOT)
-                    and self.notify_on_del_namespace
-                ):
-                    self.emit(namespace=BROKER_ON_NAMESPACE_DELETED, using=namespace)
+            self._cleanup_namespace_if_empty(namespace)
 
     def _validate_emit_args(self, namespace: str, kwargs: dict[str, Any]) -> None:
         """
@@ -335,25 +400,24 @@ class Broker(ModuleType):
         """
         provided_args = set(kwargs.keys())
 
-        matching_namespaces = []
-        for sub_namespace in _SUBSCRIBERS.keys():
-            if self._matches(namespace, sub_namespace):
-                matching_namespaces.append(sub_namespace)
+        # Check all namespaces that match the emitted namespace
+        for reg_namespace, entry in _NAMESPACE_REGISTRY.items():
+            if not self._matches(namespace, reg_namespace):
+                continue
 
-        for sub_namespace in matching_namespaces:
-            expected_params = _NAMESPACE_SIGNATURES.get(sub_namespace)
+            expected_params = entry["signature"]
 
-            if expected_params is None:  # **kwargs not validated
+            if expected_params is None:
                 continue
 
             if provided_args != expected_params:
                 raise EmitArgumentError(
                     f"Argument mismatch when emitting to '{namespace}'. "
-                    f"Subscribers in '{sub_namespace}' expect: {sorted(expected_params)}, "
+                    f"Subscribers in '{reg_namespace}' expect: {sorted(expected_params)}, "
                     f"but got: {sorted(provided_args)}"
                 )
 
-    def set_exception_handler(
+    def set_subscriber_exception_handler(
         self, handler: Optional[handlers.SUBSCRIPTION_EXCEPTION_HANDLER]
     ) -> None:
         self._subscriptions_exception_handler = handler
@@ -367,10 +431,10 @@ class Broker(ModuleType):
         if transformed_kwargs is None:
             return  # Event blocked
 
-        for sub_namespace, subscribers in _SUBSCRIBERS.items():
-            if self._matches(namespace, sub_namespace):
+        for reg_namespace, entry in _NAMESPACE_REGISTRY.items():
+            if self._matches(namespace, reg_namespace):
                 sorted_subscribers = sorted(
-                    subscribers, key=lambda s: s.priority, reverse=True
+                    entry["subscribers"], key=lambda s: s.priority, reverse=True
                 )
                 for sub in sorted_subscribers:
                     callback = sub.callback
@@ -400,10 +464,10 @@ class Broker(ModuleType):
         if transformed_kwargs is None:
             return  # Event blocked
 
-        for sub_namespace, subscribers in _SUBSCRIBERS.items():
-            if self._matches(namespace, sub_namespace):
+        for reg_namespace, entry in _NAMESPACE_REGISTRY.items():
+            if self._matches(namespace, reg_namespace):
                 sorted_subscribers = sorted(
-                    subscribers, key=lambda s: s.priority, reverse=True
+                    entry["subscribers"], key=lambda s: s.priority, reverse=True
                 )
                 for sub in sorted_subscribers:
                     callback = sub.callback
@@ -431,6 +495,154 @@ class Broker(ModuleType):
         ):
             self.emit(namespace=BROKER_ON_EMIT_ASYNC, using=namespace)
 
+    # -----Transformers--------------------------------------------------------
+
+    def register_transformer(
+        self,
+        namespace: str,
+        transformer_callback: transformer.TRANSFORMER,
+        priority: int = 0,
+    ) -> None:
+        weak_transformer = _make_weak_ref(
+            transformer_callback, namespace, self._on_transformer_collected
+        )
+
+        transformer_obj = transformer.Transformer(
+            weak_callback=weak_transformer, namespace=namespace, priority=priority
+        )
+
+        is_new_namespace = namespace not in _NAMESPACE_REGISTRY
+        self._ensure_namespace_exists(namespace)
+        entry = _NAMESPACE_REGISTRY[namespace]
+
+        entry["transformers"].append(transformer_obj)
+        entry["transformers"].sort(key=lambda t: t.priority, reverse=True)
+
+        if (
+            is_new_namespace
+            and not namespace.startswith(_NOTIFY_NAMESPACE_ROOT)
+            and self.notify_on_new_namespace
+        ):
+            self.emit(namespace=BROKER_ON_NAMESPACE_CREATED, using=namespace)
+
+        if (
+            not namespace.startswith(_NOTIFY_NAMESPACE_ROOT)
+            and self.notify_on_transformer_add
+        ):
+            self.emit(namespace=BROKER_ON_TRANSFORMER_ADDED, using=namespace)
+
+    def unregister_transformer(
+        self, namespace: str, transformer_callback: transformer.TRANSFORMER
+    ) -> None:
+        if namespace in _NAMESPACE_REGISTRY:
+            entry = _NAMESPACE_REGISTRY[namespace]
+            entry["transformers"] = [
+                t for t in entry["transformers"] if t.callback != transformer_callback
+            ]
+
+            if (
+                not namespace.startswith(_NOTIFY_NAMESPACE_ROOT)
+                and self.notify_on_transformer_remove
+            ):
+                self.emit(namespace=BROKER_ON_TRANSFORMER_REMOVED, using=namespace)
+
+            self._cleanup_namespace_if_empty(namespace)
+
+    def set_transformer_exception_handler(
+        self,
+        handler: Optional[transformer.TRANSFORMER_EXCEPTION_HANDLER],
+    ) -> None:
+        """Set the exception handler for transformer errors."""
+        self._transformer_exception_handler = handler
+
+    def apply_transformers(
+        self, namespace: str, kwargs: dict[str, Any]
+    ) -> Optional[dict[str, Any]]:
+        matching_transformers = []
+
+        for reg_namespace, entry in _NAMESPACE_REGISTRY.items():
+            if self._matches(namespace, reg_namespace):
+                matching_transformers.extend(entry["transformers"])
+
+        matching_transformers.sort(key=lambda t: t.priority, reverse=True)
+        current_kwargs = kwargs.copy()
+
+        for transformer_obj in matching_transformers:
+            callback = transformer_obj.callback
+            if callback is None:
+                continue
+
+            try:
+                result = callback(namespace, current_kwargs)
+                if result is None:
+                    return None
+
+                current_kwargs = result
+
+            except Exception as e:
+                if self._transformer_exception_handler is not None:
+                    stop = self._transformer_exception_handler(callback, namespace, e)
+                    if stop:
+                        return None
+                else:
+                    transformer_name = handlers.get_callable_name(callback)
+                    raise RuntimeError(
+                        f"Transformer '{transformer_name}' failed for namespace '{namespace}': {e}"
+                    ) from e
+
+        return current_kwargs
+
+    @staticmethod
+    def clear_transformers() -> None:
+        """Clear all registered transformers."""
+        for entry in _NAMESPACE_REGISTRY.values():
+            entry["transformers"].clear()
+        empty_ns = [
+            ns
+            for ns, entry in _NAMESPACE_REGISTRY.items()
+            if not entry["subscribers"] and not entry["transformers"]
+        ]
+        for ns in empty_ns:
+            del _NAMESPACE_REGISTRY[ns]
+
+    @staticmethod
+    def get_all_transformer_namespaces() -> list[str]:
+        """Get all namespaces that have transformers."""
+        return sorted(
+            [ns for ns, entry in _NAMESPACE_REGISTRY.items() if entry["transformers"]]
+        )
+
+    # -----Notifies + Helpers--------------------------------------------------
+
+    def set_flag_states(
+        self,
+        on_subscribe: bool = False,
+        on_unsubscribe: bool = False,
+        on_subscriber_collected: bool = False,
+        on_transform: bool = False,
+        on_untransform: bool = False,
+        on_transformer_collected: bool = False,
+        on_emit: bool = False,
+        on_emit_async: bool = False,
+        on_emit_all: bool = False,
+        on_new_namespace: bool = False,
+        on_del_namespace: bool = False,
+    ) -> None:
+        self.notify_on_subscribe = on_subscribe
+        self.notify_on_unsubscribe = on_unsubscribe
+        self.notify_on_collected = on_subscriber_collected
+
+        self.notify_on_transformer_add = on_transform
+        self.notify_on_transformer_remove = on_untransform
+        self.notify_on_transformer_collected = on_transformer_collected
+
+        self.notify_on_emit = on_emit
+        self.notify_on_emit_async = on_emit_async
+        self.notify_on_emit_all = on_emit_all
+
+        self.notify_on_new_namespace = on_new_namespace
+        self.notify_on_del_namespace = on_del_namespace
+
     @staticmethod
     def _matches(namespace: str, pattern: str) -> bool:
         """
@@ -455,189 +667,30 @@ class Broker(ModuleType):
 
         return False
 
-    # -----Transformers--------------------------------------------------------
-
-    @staticmethod
-    def register_transformer(
-        namespace: str, transformer_: transformer.TRANSFORMER, priority: int = 0
-    ) -> None:
-        if namespace not in _TRANSFORMERS:
-            _TRANSFORMERS[namespace] = []
-
-        transformer_obj = transformer.Transformer(
-            callback=transformer_, namespace=namespace, priority=priority
-        )
-
-        _TRANSFORMERS[namespace].append(transformer_obj)
-        _TRANSFORMERS[namespace].sort(key=lambda t: t.priority, reverse=True)
-
-    @staticmethod
-    def unregister_transformer(
-        namespace: str, transformer_: transformer.TRANSFORMER
-    ) -> None:
-        if namespace in _TRANSFORMERS:
-            _TRANSFORMERS[namespace] = [
-                t for t in _TRANSFORMERS[namespace] if t.callback != transformer_
-            ]
-
-            if not _TRANSFORMERS[namespace]:
-                del _TRANSFORMERS[namespace]
-
-    @staticmethod
-    def set_transformer_exception_handler(
-        handler: Optional[transformer.TRANSFORMER_EXCEPTION_HANDLER],
-    ) -> None:
-        """Set the exception handler for transformer errors."""
-        global _TRANSFORMER_EXCEPTION_HANDLER
-        _TRANSFORMER_EXCEPTION_HANDLER = handler
-
-    def apply_transformers(
-        self, namespace: str, kwargs: dict[str, Any]
-    ) -> Optional[dict[str, Any]]:
-        matching_transformers = []
-
-        for transformer_ns, transformers in _TRANSFORMERS.items():
-            if self._matches(namespace, transformer_ns):
-                matching_transformers.extend(transformers)
-
-        matching_transformers.sort(key=lambda t: t.priority, reverse=True)
-        current_kwargs = kwargs.copy()  # Don't modify original
-
-        for transformer_ in matching_transformers:
-            try:
-                result = transformer_.callback(namespace, current_kwargs)
-                if result is None:
-                    return None  # Transformer blocked the event
-
-                current_kwargs = result
-
-            except Exception as e:
-                if _TRANSFORMER_EXCEPTION_HANDLER is not None:
-                    stop = self._transformer_exception_handler(
-                        transformer_.callback, namespace, e
-                    )
-                    if stop:
-                        return None
-                else:
-                    transformer_name = handlers.get_callable_name(transformer_.callback)
-                    raise RuntimeError(
-                        f"Transformer '{transformer_name}' failed for namespace '{namespace}': {e}"
-                    ) from e
-
-        return current_kwargs
-
-    @staticmethod
-    def clear_transformers() -> None:
-        """Clear all registered transformers."""
-        _TRANSFORMERS.clear()
-
-    @staticmethod
-    def get_transformers(namespace: str) -> list[transformer.Transformer]:
-        """Get all transformers registered for a namespace."""
-        return list(_TRANSFORMERS.get(namespace, []))
-
-    @staticmethod
-    def get_all_transformer_namespaces() -> list[str]:
-        """Get all namespaces that have transformers."""
-        return sorted(_TRANSFORMERS.keys())
-
-    # -----Notifies + Helpers--------------------------------------------------
-
-    def set_flag_sates(
-        self,
-        on_subscribe: bool = False,
-        on_unsubscribe: bool = False,
-        on_collected: bool = False,
-        on_emit: bool = False,
-        on_emit_async: bool = False,
-        on_emit_all: bool = False,
-        on_new_namespace: bool = False,
-        on_del_namespace: bool = False,
-    ) -> None:
-        self.notify_on_subscribe = on_subscribe
-        self.notify_on_unsubscribe = on_unsubscribe
-        self.notify_on_collected = on_collected
-        self.notify_on_emit = on_emit
-        self.notify_on_emit_async = on_emit_async
-        self.notify_on_emit_all = on_emit_all
-        self.notify_on_new_namespace = on_new_namespace
-        self.notify_on_del_namespace = on_del_namespace
-
     # -----Introspection API---------------------------------------------------
 
-    @staticmethod
-    def to_dict() -> dict:
-        """Convert the broker structure to a dictionary."""
-        keys = sorted(_SUBSCRIBERS.keys())
-        data = {}
-
-        for namespace in keys:
-            subscribers_info = []
-            for sub in _SUBSCRIBERS[namespace]:
-                callback = sub.callback
-
-                if callback is None:
-                    info = "<dead reference>"
-
-                elif hasattr(callback, "__self__"):
-                    obj = callback.__self__
-                    class_name = obj.__class__.__name__
-                    method_name = callback.__name__
-                    info = f"{class_name}.{method_name}"
-
-                elif hasattr(callback, "__qualname__"):
-                    # Regular function, static method, or class method
-                    module = getattr(callback, "__module__", "<unknown>")
-                    qualname = callback.__qualname__
-                    info = f"{module}.{qualname}"
-
-                else:
-                    # Fallback for unusual callables
-                    info = str(callback)
-
-                priority_str = (
-                    f" [priority={sub.priority}]" if sub.priority != 0 else ""
-                )
-                async_str = " [async]" if sub.is_async else ""
-                subscribers_info.append(f"{info}{priority_str}{async_str}")
-
-            data[namespace] = subscribers_info
-
-        return data
-
-    def to_string(self) -> str:
-        """Returns a string representation of the broker."""
-        return json.dumps(self.to_dict(), indent=4)
-
-    def export(self, filepath: StrOrPath) -> None:
-        """Export broker structure to filepath."""
-        with open(filepath, "w") as outfile:
-            json.dump(self.to_dict(), outfile, indent=4)
-
-    @staticmethod
-    def get_namespaces() -> list[str]:
-        return sorted(_SUBSCRIBERS.keys())
-
-    @staticmethod
-    def namespace_exists(namespace: str) -> bool:
-        return namespace in _SUBSCRIBERS
+    # -----Subscriber Introspection Methods--------------------------
 
     @staticmethod
     def get_subscriber_count(namespace: str) -> int:
-        return len(_SUBSCRIBERS.get(namespace, []))
+        return len(_NAMESPACE_REGISTRY.get(namespace, {}).get("subscribers", []))
 
     @staticmethod
     def get_live_subscriber_count(namespace: str) -> int:
-        if namespace not in _SUBSCRIBERS:
+        if namespace not in _NAMESPACE_REGISTRY:
             return 0
-        return sum(1 for sub in _SUBSCRIBERS[namespace] if sub.callback is not None)
+        return sum(
+            1
+            for sub in _NAMESPACE_REGISTRY[namespace]["subscribers"]
+            if sub.callback is not None
+        )
 
     @staticmethod
     def is_subscribed(callback: subscriber.CALLBACK, namespace: str) -> bool:
-        if namespace not in _SUBSCRIBERS:
+        if namespace not in _NAMESPACE_REGISTRY:
             return False
 
-        for sub in _SUBSCRIBERS[namespace]:
+        for sub in _NAMESPACE_REGISTRY[namespace]["subscribers"]:
             if sub.callback == callback:
                 return True
         return False
@@ -645,8 +698,8 @@ class Broker(ModuleType):
     @staticmethod
     def get_subscriptions(callback: subscriber.CALLBACK) -> list[str]:
         subscriptions = []
-        for namespace, subscribers in _SUBSCRIBERS.items():
-            for sub in subscribers:
+        for namespace, entry in _NAMESPACE_REGISTRY.items():
+            for sub in entry["subscribers"]:
                 if sub.callback == callback:
                     subscriptions.append(namespace)
                     break
@@ -654,17 +707,73 @@ class Broker(ModuleType):
 
     @staticmethod
     def get_subscribers(namespace: str) -> list[subscriber.Subscriber]:
-        return list(_SUBSCRIBERS.get(namespace, []))
+        return list(_NAMESPACE_REGISTRY.get(namespace, {}).get("subscribers", []))
 
     @staticmethod
     def get_live_subscribers(namespace: str) -> list[subscriber.Subscriber]:
-        if namespace not in _SUBSCRIBERS:
+        if namespace not in _NAMESPACE_REGISTRY:
             return []
-        return [sub for sub in _SUBSCRIBERS[namespace] if sub.callback is not None]
+        return [
+            sub
+            for sub in _NAMESPACE_REGISTRY[namespace]["subscribers"]
+            if sub.callback is not None
+        ]
+
+    # -----Transformer Introspection Methods-------------------------
+
+    @staticmethod
+    def get_transformer_count(namespace: str) -> int:
+        return len(_NAMESPACE_REGISTRY.get(namespace, {}).get("transformers", []))
+
+    @staticmethod
+    def get_live_transformer_count(namespace: str) -> int:
+        if namespace not in _NAMESPACE_REGISTRY:
+            return 0
+        return sum(
+            1
+            for trans in _NAMESPACE_REGISTRY[namespace]["transformers"]
+            if trans.callback is not None
+        )
+
+    @staticmethod
+    def is_transformed(callback: transformer.TRANSFORMER, namespace: str) -> bool:
+        if namespace not in _NAMESPACE_REGISTRY:
+            return False
+
+        for trans in _NAMESPACE_REGISTRY[namespace]["transformers"]:
+            if trans.callback == callback:
+                return True
+        return False
+
+    @staticmethod
+    def get_transformations(callback: transformer.TRANSFORMER) -> list[str]:
+        transformations = []
+        for namespace, entry in _NAMESPACE_REGISTRY.items():
+            for trans in entry["transformers"]:
+                if trans.callback == callback:
+                    transformations.append(namespace)
+                    break
+        return sorted(transformations)
+
+    @staticmethod
+    def get_transformers(namespace: str) -> list[transformer.Transformer]:
+        return list(_NAMESPACE_REGISTRY.get(namespace, {}).get("transformers", []))
+
+    @staticmethod
+    def get_live_transformers(namespace: str) -> list[transformer.Transformer]:
+        if namespace not in _NAMESPACE_REGISTRY:
+            return []
+        return [
+            trans
+            for trans in _NAMESPACE_REGISTRY[namespace]["transformers"]
+            if trans.callback is not None
+        ]
+
+    # -----General Introspection Methods-----------------------------
 
     def get_matching_namespaces(self, pattern: str) -> list[str]:
         matching = []
-        for namespace in _SUBSCRIBERS.keys():
+        for namespace in _NAMESPACE_REGISTRY.keys():
             # Pattern 'system.io.*' should match namespace 'system.io.file'
             # OR namespace 'system.*' should match pattern 'system.io.file'
             if self._matches(namespace, pattern) or self._matches(pattern, namespace):
@@ -673,518 +782,181 @@ class Broker(ModuleType):
 
     @staticmethod
     def get_namespace_info(namespace: str) -> Optional[dict[str, object]]:
-        if namespace not in _SUBSCRIBERS:
+        if namespace not in _NAMESPACE_REGISTRY:
             return None
 
-        subscribers = _SUBSCRIBERS[namespace]
+        subscribers = _NAMESPACE_REGISTRY[namespace]["subscribers"]
         live_subs = [sub for sub in subscribers if sub.callback is not None]
+
+        transformers = _NAMESPACE_REGISTRY[namespace]["transformers"]
+        live_trans = [trans for trans in transformers if trans.callback is not None]
 
         return {
             "namespace": namespace,
             "subscriber_count": len(subscribers),
             "live_subscriber_count": len(live_subs),
-            "expected_params": _NAMESPACE_SIGNATURES.get(namespace),
+            "transformer_count": len(transformers),
+            "live_transformer_count": len(live_trans),
+            "expected_params": _NAMESPACE_REGISTRY[namespace]["signature"],
             "has_async": any(sub.is_async for sub in live_subs),
             "has_sync": any(not sub.is_async for sub in live_subs),
             "priorities": sorted(set(sub.priority for sub in live_subs), reverse=True),
+            "transformer_priorities": sorted(
+                set(trans.priority for trans in live_trans), reverse=True
+            ),
         }
 
     def get_all_namespace_info(self) -> dict[str, dict[str, object]]:
         return {
             namespace: self.get_namespace_info(namespace)
-            for namespace in _SUBSCRIBERS.keys()
+            for namespace in _NAMESPACE_REGISTRY.keys()
         }
 
     @staticmethod
     def get_statistics() -> dict[str, object]:
-        total_subscribers = sum(len(subs) for subs in _SUBSCRIBERS.values())
+        total_subscribers = sum(
+            len(entry["subscribers"]) for entry in _NAMESPACE_REGISTRY.values()
+        )
         total_live = sum(
-            sum(1 for sub in subs if sub.callback is not None)
-            for subs in _SUBSCRIBERS.values()
+            sum(1 for sub in entry["subscribers"] if sub.callback is not None)
+            for entry in _NAMESPACE_REGISTRY.values()
+        )
+
+        total_transformers = sum(
+            len(entry["transformers"]) for entry in _NAMESPACE_REGISTRY.values()
+        )
+        total_live_transformers = sum(
+            sum(1 for trans in entry["transformers"] if trans.callback is not None)
+            for entry in _NAMESPACE_REGISTRY.values()
         )
 
         namespaces_with_async = sum(
             1
-            for subs in _SUBSCRIBERS.values()
-            if any(sub.is_async and sub.callback is not None for sub in subs)
+            for entry in _NAMESPACE_REGISTRY.values()
+            if any(
+                sub.is_async and sub.callback is not None
+                for sub in entry["subscribers"]
+            )
         )
 
         namespaces_with_sync = sum(
             1
-            for subs in _SUBSCRIBERS.values()
-            if any(not sub.is_async and sub.callback is not None for sub in subs)
+            for entry in _NAMESPACE_REGISTRY.values()
+            if any(
+                not sub.is_async and sub.callback is not None
+                for sub in entry["subscribers"]
+            )
         )
 
-        namespace_count = len(_SUBSCRIBERS)
+        namespaces_with_transformers = sum(
+            1
+            for entry in _NAMESPACE_REGISTRY.values()
+            if any(trans.callback is not None for trans in entry["transformers"])
+        )
+
+        namespace_count = len(_NAMESPACE_REGISTRY)
 
         return {
             "total_namespaces": namespace_count,
             "total_subscribers": total_subscribers,
             "total_live_subscribers": total_live,
-            "dead_references": total_subscribers - total_live,
+            "dead_subscriber_references": total_subscribers - total_live,
+            "total_transformers": total_transformers,
+            "total_live_transformers": total_live_transformers,
+            "dead_transformer_references": total_transformers - total_live_transformers,
             "namespaces_with_async": namespaces_with_async,
             "namespaces_with_sync": namespaces_with_sync,
+            "namespaces_with_transformers": namespaces_with_transformers,
             "average_subscribers_per_namespace": (
                 total_live / namespace_count if namespace_count > 0 else 0
             ),
+            "average_transformers_per_namespace": (
+                total_live_transformers / namespace_count if namespace_count > 0 else 0
+            ),
         }
 
+    @staticmethod
+    def _get_callback_info(callback: Callable) -> str:
+        """Returns metadata on a callable as a string."""
+        if callback is None:
+            info = "<dead reference>"
 
-# This is here to protect the _SUBSCRIBERS dict, creating a protective closure.
+        elif hasattr(callback, "__self__"):
+            obj = callback.__self__
+            class_name = obj.__class__.__name__
+            method_name = callback.__name__
+            info = f"{class_name}.{method_name}"
+
+        elif hasattr(callback, "__qualname__"):
+            # Regular function, static method, or class method
+            module = getattr(callback, "__module__", "<unknown>")
+            qualname = callback.__qualname__
+            info = f"{module}.{qualname}"
+
+        else:
+            # Fallback for unusual callables
+            info = str(callback)
+
+        return info
+
+    def to_dict(self) -> dict:
+        """Convert the broker structure to a dictionary."""
+        keys = sorted(_NAMESPACE_REGISTRY.keys())
+        data = {}
+
+        for namespace in keys:
+            entry = _NAMESPACE_REGISTRY[namespace]
+
+            # Process subscribers
+            subscribers_info = []
+            for sub in entry["subscribers"]:
+                info = self._get_callback_info(sub.callback)
+
+                priority_str = (
+                    f" [priority={sub.priority}]" if sub.priority != 0 else ""
+                )
+                async_str = " [async]" if sub.is_async else ""
+                subscribers_info.append(f"{info}{priority_str}{async_str}")
+
+            # Process transformers
+            transformers_info = []
+            for trans in entry["transformers"]:
+                info = self._get_callback_info(trans.callback)
+
+                priority_str = (
+                    f" [priority={trans.priority}]" if trans.priority != 0 else ""
+                )
+                transformers_info.append(f"{info}{priority_str}")
+
+            # Build namespace entry
+            namespace_data = {}
+            if subscribers_info:
+                namespace_data["subscribers"] = subscribers_info
+            if transformers_info:
+                namespace_data["transformers"] = transformers_info
+
+            data[namespace] = namespace_data
+
+        return data
+
+    def to_string(self) -> str:
+        """Returns a string representation of the broker."""
+        return json.dumps(self.to_dict(), indent=4)
+
+    def export(self, filepath: Union[str, os.PathLike]) -> None:
+        """Export broker structure to filepath."""
+        with open(filepath, "w") as outfile:
+            json.dump(self.to_dict(), outfile, indent=4)
+
+    @staticmethod
+    def get_namespaces() -> list[str]:
+        return sorted(_NAMESPACE_REGISTRY.keys())
+
+    @staticmethod
+    def namespace_exists(namespace: str) -> bool:
+        return namespace in _NAMESPACE_REGISTRY
+
+
+# This is here to protect the _NAMESPACE_REGISTRY, creating a protective closure.
 custom_module = Broker(sys.modules[__name__].__name__)
 sys.modules[__name__] = custom_module
-
-
-# -----------------------------------------------------------------------------
-
-# -----------------------------------------------------------------------------
-# Required for static type checkers to accept these names as members of
-# this module.
-#
-# The doc strings for each function exists in the stubs for intellisense
-# fetching, instead of above.
-# -----------------------------------------------------------------------------
-
-
-def clear() -> None:
-    """Clears the namespace and subscriber table."""
-
-
-# noinspection PyUnusedLocal
-def register_subscriber(
-    namespace: str, callback: subscriber.CALLBACK, priority: int = 0
-) -> None:
-    """
-    Register a callback function to a namespace.
-
-    Args:
-        namespace (str): Event namespace
-            (e.g., 'system.io.file_open' or 'system.*').
-        callback (CALLBACK): Function to call when events are emitted. Can be
-            sync or async.
-        priority (int): The priority used for callback execution order.
-            Higher priorities are ran before lower priorities.
-    Raises:
-        SignatureMismatchError: If callback signature doesn't match existing
-            subscribers.
-    Notes:
-        Emits a notify event when a namespace is created and when a
-        subscriber is registered. Notify emits the used namespace.
-    """
-
-
-# noinspection PyUnusedLocal
-def unregister_subscriber(namespace: str, callback: subscriber.CALLBACK) -> None:
-    """
-    Remove a callback from a namespace.
-
-    Args:
-        namespace (str): Event namespace.
-        callback (CALLBACK): Function to remove.
-    Notes:
-        Emits a notify event when subscriber is unregistered and when a
-        namespace is removed from consolidation. Notify emits the used
-        namespace.
-    """
-
-
-# noinspection PyUnusedLocal
-def set_exception_handler(
-    handler: Optional[handlers.SUBSCRIPTION_EXCEPTION_HANDLER],
-) -> None:
-    """
-    Set the exception handler for subscriber errors.
-    The handler is called when a subscriber raises an exception during emit.
-
-    Args:
-        handler: Callable with signature (CALLBACK, str, Exception) -> bool.
-                 Returns True to stop delivery, False to continue.
-                 Pass None to restore default behavior (re-raise exceptions).
-    Example:
-        def my_handler(callback: Callable, namespace: str, exc: Exception) -> bool:
-            print(f"Error in {namespace}: {exc}")
-            return False  # Continue
-
-        broker.set_exception_handler(my_handler)
-
-        # Or use the built-in default handler
-        import broker
-        broker.set_exception_handler(broker.default_exception_handler)
-    """
-
-
-# noinspection PyUnusedLocal
-def emit(namespace: str, **kwargs: Any) -> None:
-    """
-    Emit an event to all matching synchronous subscribers.
-
-    Synchronous subscribers are called immediately in priority order.
-    Asynchronous subscribers are NOT called - they are skipped entirely.
-
-    Use emit_async() if you need to call async subscribers or await their
-    completion.
-
-    Args:
-        namespace (str): Event namespace (e.g., 'system.io.file_open').
-        **kwargs (Any): Arguments to pass to subscriber callbacks.
-    Raises:
-        EmitArgumentError: If provided kwargs don't match subscriber signatures.
-    Note:
-        -This method only calls synchronous callbacks. Async callbacks are
-        skipped. Use emit_async() to call async callbacks.
-        -Emits a notify event after args have been sent to subscribers.
-        Notify emits the used namespace.
-    """
-
-
-# noinspection PyUnusedLocal
-async def emit_async(namespace: str, **kwargs: Any) -> None:
-    """
-    Asynchronously emit an event to all matching subscribers.
-
-    Both synchronous and asynchronous subscribers are called in priority order.
-    - Synchronous subscribers are executed immediately.
-    - Asynchronous subscribers are awaited sequentially.
-
-    This method must be awaited. Execution blocks until all subscribers complete.
-    Use emit() for fire-and-forget behavior with sync-only subscribers.
-
-    Args:
-        namespace (str): Event namespace (e.g., 'system.io.file_open').
-        **kwargs (Any): Arguments to pass to subscriber callbacks.
-    Raises:
-        EmitArgumentError: If provided kwargs don't match subscriber
-            signatures.
-    Note:
-        -This method calls both sync and async callbacks. Sync callbacks are
-        executed normally, async callbacks are awaited.
-        -Emits a notify event after args have been sent to subscribers.
-        Notify emits the used namespace.
-    """
-
-
-# noinspection PyUnusedLocal
-def register_transformer(
-    namespace: str, transformer_: transformer.TRANSFORMER, priority: int = 0
-) -> None:
-    """
-    Register a transformer for a namespace.
-
-    Transformers intercept events before they reach subscribers and can:
-    - Modify event arguments
-    - Block event propagation
-    - Log/validate events
-
-    Args:
-        namespace (str): Namespace pattern (supports wildcards like 'system.*').
-        transformer_ (TRANSFORMER): Function that receives (namespace, kwargs)
-            and returns modified kwargs or None to block.
-        priority (int): Execution order (higher = earlier, default 0).
-    Example:
-        def add_timestamp(namespace: str, kwargs: dict[str, Any]) -> dict:
-            kwargs['timestamp'] = time.time()
-
-            return kwargs
-
-        broker.register_transformer('system.*', add_timestamp, priority=10)
-    """
-
-
-# noinspection PyUnusedLocal
-def unregister_transformer(
-    namespace: str, transformer_: transformer.TRANSFORMER
-) -> None:
-    """
-    Remove a transformer from a namespace.
-
-    Args:
-        namespace (str): The namespace the transformer is registered to.
-        transformer_ (TRANSFORMER): The transformer function to remove.
-    """
-
-
-# noinspection PyUnusedLocal
-def apply_transformers(
-    namespace: str, kwargs: dict[str, Any]
-) -> Optional[dict[str, Any]]:
-    """
-    Apply all matching transformers to event kwargs.
-
-    Transformers execute in priority order. If any transformer returns None,
-    propagation stops and the event is blocked.
-
-    Args:
-        namespace (str): The event namespace being emitted.
-        kwargs (dict[str, Any]): The event arguments.
-    Returns:
-        Modified kwargs dict, or None if event was blocked
-    """
-
-
-def clear_transformers() -> None:
-    """Clear all registered transformers."""
-
-
-# noinspection PyUnusedLocal
-def get_transformers(namespace: str) -> list[transformer.Transformer]:
-    """Get all transformers registered for a namespace."""
-
-
-def get_all_transformer_namespaces() -> list[str]:
-    """Get all namespaces that have transformers."""
-
-
-# noinspection PyUnusedLocal
-def subscribe(
-    namespace: str, priority: int = 0
-) -> Callable[[subscriber.CALLBACK], subscriber.CALLBACK]:
-    """
-    Decorator to register a function or static method as a subscriber.
-
-    To register an instance referencing class method (one using 'self'),
-    use broker.register_subscriber('source', 'event_name', self.method).
-
-    Usage:
-        @subscribe('system.file.io', 5)
-        def on_file_open(filepath: str) -> None:
-            print(f'File opened: {filepath}')
-    Args:
-        namespace (str): The event namespace to subscribe to.
-        priority (int): The execution priority. Defaults to 0.
-    Returns:
-        Callable: Decorator function that registers the subscriber.
-    """
-
-
-# noinspection PyUnusedLocal
-def transform(
-    namespace: str, priority: int = 0
-) -> Callable[[transformer.TRANSFORMER], transformer.TRANSFORMER]:
-    """
-    Decorator to register a function or static method as a transformer.
-
-    To register an instance referencing class method (one using 'self'),
-    use broker.register_transformer('source', 'event_name', self.method).
-
-    Usage:
-        @transform('system.file.io', 5)
-        def add_timestamp(namespace: str, kwargs: dict) -> dict:
-            kwargs['timestamp'] = time.time()
-            return kwargs
-    Args:
-        namespace (str): The event namespace to transform data for.
-        priority (int): The execution priority. Defaults to 0.
-    Returns:
-        Callable: Decorator function that registers the transformer.
-    """
-
-
-# noinspection PyUnusedLocal
-def set_flag_sates(
-    on_subscribe: bool = False,
-    on_unsubscribe: bool = False,
-    on_collected: bool = False,
-    on_emit: bool = False,
-    on_emit_async: bool = False,
-    on_emit_all: bool = False,
-    on_new_namespace: bool = False,
-    on_del_namespace: bool = False,
-) -> None:
-    """
-    Set the notification flags on or off for each type of broker activity.
-    The broker can be configured through any of the following:
-
-    Args:
-        on_subscribe:    	if True, get notified whenever register_subscriber() is called;
-        on_unsubscribe:  	if True, get notified whenever unregister_subscriber() is called;
-        on_collected:       if True, get notified whenever a subscriber has been garbage collected;
-        on_emit:			if True, get notified whenever emit() is called;
-        on_emit_async:		if True, get notified whenever emit_async() is called;
-        on_emit_all:		if True, get notified whenever emit() or emit_async() is called.
-        on_new_namespace: 	if True, get notified whenever a new namespace is created;
-        on_del_namespace:	if True, get notified whenever a namespace is "deleted";
-    """
-
-
-def to_dict() -> dict:
-    """Convert the broker structure to a dictionary."""
-
-
-# noinspection PyUnusedLocal
-def to_string() -> str:
-    """Returns a string representation of the broker."""
-
-
-def export(filepath: StrOrPath) -> None:
-    """Export broker structure to filepath."""
-
-
-def get_namespaces() -> list[str]:
-    """Get all registered namespaces."""
-
-
-# noinspection PyUnusedLocal
-def namespace_exists(namespace: str) -> bool:
-    """Check if a namespace exists..."""
-
-
-# noinspection PyUnusedLocal
-def get_subscriber_count(namespace: str) -> int:
-    """
-    Get the number of subscribers for a namespace.
-
-    Args:
-        namespace (str): Namespace to count subscribers for.
-    Returns:
-        int: Number of subscribers (including dead weak references).
-    """
-
-
-# noinspection PyUnusedLocal
-def get_live_subscriber_count(namespace: str) -> int:
-    """
-    Get the number of live (non-garbage-collected) subscribers.
-
-    Args:
-        namespace: Namespace to count live subscribers for.
-    Returns:
-        Number of subscribers with live callbacks.
-    """
-
-
-# noinspection PyUnusedLocal
-def is_subscribed(callback: subscriber.CALLBACK, namespace: str) -> bool:
-    """
-    Check if a specific callback is subscribed to a namespace.
-
-    Args:
-        callback (Callable): The callback function to check.
-        namespace (str): The namespace to check.
-
-    Returns:
-        bool: True if callback is subscribed to namespace, False otherwise.
-    """
-
-
-# noinspection PyUnresolvedReferences
-# noinspection PyUnusedLocal
-def get_subscriptions(callback: subscriber.CALLBACK) -> list[str]:
-    """
-    Get all namespaces that a callback is subscribed to.
-
-    Args:
-        callback (Callable): The callback to find subscriptions for.
-    Returns:
-        list[str]: List of namespace strings the callback is subscribed to.
-    Example:
-        >>> def my_handler(data: str): pass
-        >>> broker.register_subscriber('test.one', my_handler)
-        >>> broker.register_subscriber('test.two', my_handler)
-        >>> broker.get_subscriptions(my_handler)
-        ['test.one', 'test.two']
-    """
-
-
-# noinspection PyUnusedLocal
-def get_subscribers(namespace: str) -> list[subscriber.Subscriber]:
-    """
-    Get all subscribers for a namespace.
-
-    Args:
-        namespace (str): Namespace to get subscribers for.
-    Returns:
-        list[subscriber.Subscriber]: List of Subscriber objects. May include
-            dead references.
-    """
-
-
-# noinspection PyUnusedLocal
-def get_live_subscribers(namespace: str) -> list[subscriber.Subscriber]:
-    """
-    Get all live (non-garbage-collected) subscribers for a namespace.
-
-    Args:
-        namespace (str): Namespace to get live subscribers for.
-    Returns:
-        list[subscriber.Subscriber]: List of Subscriber objects with live
-            callbacks only.
-    """
-
-
-# noinspection PyUnresolvedReferences
-# noinspection PyUnusedLocal
-def get_matching_namespaces(pattern: str) -> list[str]:
-    """
-    Get all namespaces that match a pattern (including wildcards).
-
-    Args:
-        pattern (str): Pattern to match (e.g., 'system.*' or 'app.module.action').
-    Returns:
-        list[str]: List of matching namespace strings.
-    Example:
-        >>> broker.get_matching_namespaces('system.*')
-        ['system.io.file', 'system.io.network']
-    """
-
-
-# noinspection PyUnresolvedReferences
-# noinspection PyUnusedLocal
-def get_namespace_info(namespace: str) -> Optional[dict[str, object]]:
-    """
-    Get detailed information about a namespace.
-
-    Args:
-        namespace (str): Namespace to get info for.
-    Returns:
-        Optional[dict[str, object]]: Dictionary with namespace details, or None
-            if namespace doesn't exist.
-    Example:
-        >>> info = broker.get_namespace_info('test.event')
-        >>> print(info)
-        {
-            'namespace': 'test.event',
-            'subscriber_count': 3,
-            'live_subscriber_count': 2,
-            'expected_params': {'data', 'size'},
-            'has_async': True,
-            'has_sync': True,
-            'priorities': [1, 5, 10]
-        }
-    """
-
-
-# noinspection PyUnresolvedReferences
-def get_all_namespace_info() -> dict[str, dict[str, object]]:
-    """
-    Get detailed information for all namespaces.
-
-    Returns:
-        dict[str, dict[str, object]]: Dictionary mapping namespace to info dict.
-    Example:
-        >>> all_info = broker.get_all_namespace_info()
-        >>> for ns, info in all_info.items():
-        ...     print(f"{ns}: {info['live_subscriber_count']} live subscribers")
-    """
-
-
-# noinspection PyUnresolvedReferences
-def get_statistics() -> dict[str, object]:
-    """
-    Get overall broker statistics.
-
-    Returns:
-        dict[str, object]: Dictionary with broker-wide statistics.
-
-    Example:
-        >>> stats = broker.get_statistics()
-        >>> print(stats)
-        {
-            'total_namespaces': 10,
-            'total_subscribers': 45,
-            'total_live_subscribers': 42,
-            'dead_references': 3,
-            'namespaces_with_async': 5,
-            'namespaces_with_sync': 8,
-            'average_subscribers_per_namespace': 4.5
-        }
-    """

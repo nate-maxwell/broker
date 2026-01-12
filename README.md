@@ -3,6 +3,14 @@
 A simple message broker system for python.
 Supports sync and async events.
 
+The broker comprises 5 concepts:
+* `The Broker` - The system itself.
+* `Namespaces` - The string groupings of subscribers + transformers that systems
+  communicate over.
+* `Subscribers` - End points that receive data.
+* `Transformers` - Middleware that alters, filters, or blocks data.
+* `Emitters` - Event producers.
+
 ## Subscribing and Namespaces
 
 Subscriptions can be done either by decorating functions or static methods, or
@@ -236,18 +244,15 @@ def normalize_paths(namespace: str, kwargs: dict) -> dict:
 
 ## Broker Event Notification
 
-Actions within the broker itself can be subscribed to, including:
-* Subscriber addition
-* Subscriber removal
-* Subscriber deletion from GC
-* Synchronous event emitting
-* Asynchronous event emitting
-* All event emitting
-* Namespace creation
-* Namespace deletion
-
-This is easily achieved using broker constants like so:
+Internal notifications for events within the broker itself cna be enabled via
 ```python
+broker.set_flag_states()
+```
+
+Actions within the broker itself can be subscribed to like so:
+```python
+broker.set_flag_states(on_subscribe=True)
+
 @broker.subscribe(broker.BROKER_ON_SUBSCRIBER_ADDED)
 def on_subscriber_added(using: str) -> None:
     print(f'New subscriber to namespace: {using}')
@@ -257,9 +262,15 @@ Available notifications are:
 * BROKER_ON_SUBSCRIBER_ADDED
 * BROKER_ON_SUBSCRIBER_REMOVED
 * BROKER_ON_SUBSCRIBER_COLLECTED
+* 
+* BROKER_ON_TRANSFORMER_ADDED = BROKER_ON_TRANSFORMER_ADDED
+* BROKER_ON_TRANSFORMER_REMOVED = BROKER_ON_TRANSFORMER_REMOVED
+* BROKER_ON_TRANSFORMER_COLLECTED = BROKER_ON_TRANSFORMER_COLLECTED
+* 
 * BROKER_ON_EMIT
 * BROKER_ON_EMIT_ASYNC
 * BROKER_ON_EMIT_ALL
+* 
 * BROKER_ON_NAMESPACE_CREATED
 * BROKER_ON_NAMESPACE_DELETED
 
@@ -360,7 +371,7 @@ broker.register_subscriber('process', always_succeeds, priority=5)
 # With silent handler, both callbacks run even if first fails
 from broker import handlers
 
-broker.set_exception_handler(exceptions.silent_exception_handler)
+broker.set_subscriber_exception_handler(handlers.silent_exception_handler)
 
 broker.emit('process', value=-1)  # Both callbacks execute
 
