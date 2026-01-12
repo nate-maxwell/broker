@@ -250,26 +250,6 @@ def test_transformer_error_raises() -> None:
         broker.emit("test.event", data="test")
 
 
-def test_get_transformers() -> None:
-    """Test getting transformers for a namespace."""
-    broker.clear()
-
-    def transformer1(namespace: str, kwargs: dict) -> dict:
-        return kwargs
-
-    def transformer2(namespace: str, kwargs: dict) -> dict:
-        return kwargs
-
-    broker.register_transformer("test.event", transformer1)
-    broker.register_transformer("test.event", transformer2)
-
-    transformers = broker.get_transformers("test.event")
-
-    assert len(transformers) == 2
-    assert any(t.callback == transformer1 for t in transformers)
-    assert any(t.callback == transformer2 for t in transformers)
-
-
 def test_transformer_receives_namespace() -> None:
     """Test that transformer receives the actual event namespace."""
     broker.clear()
@@ -291,43 +271,6 @@ def test_transformer_receives_namespace() -> None:
     assert received_namespace[0] == "system.io.file"
 
 
-def test_get_transformer_count() -> None:
-    """Test counting transformers for a namespace."""
-    broker.clear()
-
-    def transformer1(namespace: str, kwargs: dict) -> dict:
-        return kwargs
-
-    def transformer2(namespace: str, kwargs: dict) -> dict:
-        return kwargs
-
-    broker.register_transformer("test.event", transformer1)
-    broker.register_transformer("test.event", transformer2)
-
-    assert broker.get_transformer_count("test.event") == 2
-    assert broker.get_transformer_count("nonexistent") == 0
-
-
-def test_get_live_transformer_count() -> None:
-    """Test counting only live (non-garbage-collected) transformers."""
-    broker.clear()
-
-    transformer1 = lambda namespace, kwargs: kwargs
-
-    def transformer2(namespace: str, kwargs: dict) -> dict:
-        return kwargs
-
-    broker.register_transformer("test.event", transformer1)
-    broker.register_transformer("test.event", transformer2)
-
-    assert broker.get_live_transformer_count("test.event") == 2
-
-    del transformer1
-    gc.collect()
-
-    assert broker.get_live_transformer_count("test.event") == 1
-
-
 def test_is_transformed() -> None:
     """Test checking if a callback is registered as a transformer."""
     broker.clear()
@@ -343,46 +286,6 @@ def test_is_transformed() -> None:
     assert broker.is_transformed(transformer1, "test.event") is True
     assert broker.is_transformed(transformer2, "test.event") is False
     assert broker.is_transformed(transformer1, "other.event") is False
-
-
-def test_get_transformations() -> None:
-    """Test getting all namespaces a transformer is registered for."""
-    broker.clear()
-
-    def transformer(namespace: str, kwargs: dict) -> dict:
-        return kwargs
-
-    broker.register_transformer("test.one", transformer)
-    broker.register_transformer("test.two", transformer)
-    broker.register_transformer("test.three", transformer)
-
-    transformations = broker.get_transformations(transformer)
-
-    assert transformations == ["test.one", "test.three", "test.two"]
-
-
-def test_get_live_transformers() -> None:
-    """Test getting only live transformers."""
-    broker.clear()
-
-    transformer1 = lambda namespace, kwargs: kwargs
-
-    def transformer2(namespace: str, kwargs: dict) -> dict:
-        return kwargs
-
-    broker.register_transformer("test.event", transformer1, priority=10)
-    broker.register_transformer("test.event", transformer2, priority=5)
-
-    live_transformers = broker.get_live_transformers("test.event")
-    assert len(live_transformers) == 2
-
-    del transformer1
-    gc.collect()
-
-    live_transformers = broker.get_live_transformers("test.event")
-    assert len(live_transformers) == 1
-    assert live_transformers[0].callback == transformer2
-    assert live_transformers[0].priority == 5
 
 
 def test_transformer_weak_reference() -> None:

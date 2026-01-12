@@ -46,16 +46,14 @@ from broker import subscriber
 from broker import namespaces
 
 
-# -----Version-----------------------------------------------------------------
 version_major = 1
 version_minor = 7
 version_patch = 0
 __version__ = f"{version_major}.{version_minor}.{version_patch}"
 
-# -----Table-------------------------------------------------------------------
 _NAMESPACE_REGISTRY: dict[str, namespaces.NamespaceEntry] = {}
 """
-Unified namespace registry.
+Global namespace registry.
 Each namespace tracks its subscribers, transformers, and expected signature.
 A namespace exists if it has at least one subscriber OR transformer.
 """
@@ -172,6 +170,8 @@ class Broker(ModuleType):
     # ---Constants---
     __version__ = __version__
     _BROKER_IMPORT_GUARD = _BROKER_IMPORT_GUARD
+    # Explicitly refuse to make closure for _NAMESPACE_REGISTRY so it stays
+    # protected!
 
     # ---Exceptions---
     SignatureMismatchError = SignatureMismatchError
@@ -402,16 +402,20 @@ class Broker(ModuleType):
 
         # Check all namespaces that match the emitted namespace
         for reg_namespace, entry in _NAMESPACE_REGISTRY.items():
-            if self._matches(namespace, reg_namespace):
-                expected_params = entry["signature"]
+            if not self._matches(namespace, reg_namespace):
+                continue
 
-                if expected_params is not None:
-                    if provided_args != expected_params:
-                        raise EmitArgumentError(
-                            f"Argument mismatch when emitting to '{namespace}'. "
-                            f"Subscribers in '{reg_namespace}' expect: {sorted(expected_params)}, "
-                            f"but got: {sorted(provided_args)}"
-                        )
+            expected_params = entry["signature"]
+
+            if expected_params is None:
+                continue
+
+            if provided_args != expected_params:
+                raise EmitArgumentError(
+                    f"Argument mismatch when emitting to '{namespace}'. "
+                    f"Subscribers in '{reg_namespace}' expect: {sorted(expected_params)}, "
+                    f"but got: {sorted(provided_args)}"
+                )
 
     def set_subscriber_exception_handler(
         self, handler: Optional[handlers.SUBSCRIPTION_EXCEPTION_HANDLER]
