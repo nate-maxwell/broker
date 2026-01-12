@@ -156,15 +156,6 @@ def get_statistics() -> dict[str, object]:
         >>> stats = broker.get_statistics()
         >>> print(stats)
         {
-            'total_namespaces': 10,
-            'total_subscribers': 45,
-            'total_live_subscribers': 42,
-            'dead_references': 3,
-            'namespaces_with_async': 5,
-            'namespaces_with_sync': 8,
-            'average_subscribers_per_namespace': 4.5
-        }
-        {
             "total_namespaces": 10,
             "total_subscribers": 45,
             "total_live_subscribers": 42,
