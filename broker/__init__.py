@@ -602,13 +602,6 @@ class Broker(ModuleType):
             del _NAMESPACE_REGISTRY[ns]
 
     @staticmethod
-    def get_transformers(namespace: str) -> list[transformer.Transformer]:
-        """Get all transformers registered for a namespace."""
-        if namespace in _NAMESPACE_REGISTRY:
-            return list(_NAMESPACE_REGISTRY[namespace]["transformers"])
-        return []
-
-    @staticmethod
     def get_all_transformer_namespaces() -> list[str]:
         """Get all namespaces that have transformers."""
         return sorted(
@@ -617,7 +610,7 @@ class Broker(ModuleType):
 
     # -----Notifies + Helpers--------------------------------------------------
 
-    def set_flag_sates(
+    def set_flag_states(
         self,
         on_subscribe: bool = False,
         on_unsubscribe: bool = False,

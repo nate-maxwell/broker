@@ -3,6 +3,14 @@
 A simple message broker system for python.
 Supports sync and async events.
 
+The broker comprises 5 concepts:
+* `The Broker` - The system itself.
+* `Namespaces` - The string groupings of subscribers + transformers that systems
+  communicate over.
+* `Subscribers` - End points that receive data.
+* `Transformers` - Middleware that alters, filters, or blocks data.
+* `Emitters` - Event producers.
+
 ## Subscribing and Namespaces
 
 Subscriptions can be done either by decorating functions or static methods, or
@@ -236,8 +244,15 @@ def normalize_paths(namespace: str, kwargs: dict) -> dict:
 
 ## Broker Event Notification
 
+Internal notifications for events within the broker itself cna be enabled via
+```python
+broker.set_flag_states()
+```
+
 Actions within the broker itself can be subscribed to like so:
 ```python
+broker.set_flag_states(on_subscribe=True)
+
 @broker.subscribe(broker.BROKER_ON_SUBSCRIBER_ADDED)
 def on_subscriber_added(using: str) -> None:
     print(f'New subscriber to namespace: {using}')

@@ -30,7 +30,7 @@ def clear() -> None:
 
 
 # noinspection PyUnusedLocal
-def set_flag_sates(
+def set_flag_states(
     on_subscribe: bool = False,
     on_unsubscribe: bool = False,
     on_subscriber_collected: bool = False,

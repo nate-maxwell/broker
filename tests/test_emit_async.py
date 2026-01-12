@@ -328,7 +328,7 @@ async def test_async_with_notify_flags() -> None:
     def on_emit_async(using: str) -> None:
         notifications.append(using)
 
-    broker.set_flag_sates(on_emit_async=True)
+    broker.set_flag_states(on_emit_async=True)
 
     async def async_handler(data: str) -> None:
         pass
@@ -349,7 +349,7 @@ async def test_async_with_emit_all_flag() -> None:
     def on_emit(using: str) -> None:
         notifications.append(using)
 
-    broker.set_flag_sates(on_emit_all=True)
+    broker.set_flag_states(on_emit_all=True)
 
     async def async_handler(data: str) -> None:
         pass

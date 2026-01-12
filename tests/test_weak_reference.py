@@ -95,7 +95,7 @@ def test_weak_reference_lambda() -> None:
 def test_on_collected_notification_flag_off() -> None:
     """Test that no notification is sent when notify_on_collected is False."""
     broker.clear()
-    broker.set_flag_sates(on_subscriber_collected=False)
+    broker.set_flag_states(on_subscriber_collected=False)
     collected_namespaces: list[str] = []
 
     @broker.subscribe(broker.BROKER_ON_SUBSCRIBER_COLLECTED)
@@ -120,7 +120,7 @@ def test_on_collected_notification_flag_on() -> None:
     def on_collected(using: str) -> None:
         collected_namespaces.append(using)
 
-    broker.set_flag_sates(on_subscriber_collected=True)
+    broker.set_flag_states(on_subscriber_collected=True)
 
     my_callback = lambda data: None
     broker.register_subscriber("test.event", my_callback)
@@ -140,7 +140,7 @@ def test_on_collected_multiple_namespaces() -> None:
     def on_collected(using: str) -> None:
         collected_namespaces.append(using)
 
-    broker.set_flag_sates(on_subscriber_collected=True)
+    broker.set_flag_states(on_subscriber_collected=True)
 
     callback1 = lambda data: None
     callback2 = lambda data: None
@@ -174,7 +174,7 @@ def test_on_collected_with_instance_method() -> None:
     def on_collected(using: str) -> None:
         collected_namespaces.append(using)
 
-    broker.set_flag_sates(on_subscriber_collected=True)
+    broker.set_flag_states(on_subscriber_collected=True)
 
     class Handler(object):
         def on_event(self, data: str) -> None:
@@ -198,7 +198,7 @@ def test_on_collected_does_not_trigger_for_notify_namespaces() -> None:
     def on_collected(using: str) -> None:
         collected_namespaces.append(using)
 
-    broker.set_flag_sates(on_subscriber_collected=True)
+    broker.set_flag_states(on_subscriber_collected=True)
 
     notify_callback = lambda using: None
     broker.register_subscriber(broker.BROKER_ON_SUBSCRIBER_ADDED, notify_callback)
@@ -267,7 +267,7 @@ def test_on_collected_with_priority_subscribers() -> None:
     def on_collected(using: str) -> None:
         collected_namespaces.append(using)
 
-    broker.set_flag_sates(on_subscriber_collected=True)
+    broker.set_flag_states(on_subscriber_collected=True)
 
     high_priority = lambda data: None
     low_priority = lambda data: None
@@ -296,7 +296,7 @@ async def test_on_collected_with_async_callback() -> None:
     def on_collected(using: str) -> None:
         collected_namespaces.append(using)
 
-    broker.set_flag_sates(on_subscriber_collected=True)
+    broker.set_flag_states(on_subscriber_collected=True)
 
     # noinspection PyUnusedLocal
     async def async_callback(data: str) -> None:
@@ -334,7 +334,7 @@ def test_wildcard_subscriber_collection() -> None:
     def on_collected(using: str) -> None:
         collected_namespaces.append(using)
 
-    broker.set_flag_sates(on_subscriber_collected=True)
+    broker.set_flag_states(on_subscriber_collected=True)
 
     wildcard_callback = lambda data: None
     broker.register_subscriber("test.*", wildcard_callback)
