@@ -253,7 +253,7 @@ def test_get_statistics() -> None:
     assert stats["total_namespaces"] == 2
     assert stats["total_subscribers"] == 3
     assert stats["total_live_subscribers"] == 3
-    assert stats["dead_references"] == 0
+    assert stats["dead_subscriber_references"] == 0
     assert stats["namespaces_with_async"] == 1
     assert stats["namespaces_with_sync"] == 2
     assert stats["average_subscribers_per_namespace"] == 1.5
@@ -322,10 +322,10 @@ def test_to_string_output_structure() -> None:
     assert "system.io" in parsed
     assert "system.io.export" in parsed
 
-    assert any("process_1" in s for s in parsed["system.io"])
-    assert any("<lambda>" in s for s in parsed["application"])
-    assert any("<lambda>" in s for s in parsed["application.start"])
-    assert any("<lambda>" in s for s in parsed["system.io.export"])
+    assert any("process_1" in s for s in parsed["system.io"]["subscribers"])
+    assert any("<lambda>" in s for s in parsed["application"]["subscribers"])
+    assert any("<lambda>" in s for s in parsed["application.start"]["subscribers"])
+    assert any("<lambda>" in s for s in parsed["system.io.export"]["subscribers"])
 
 
 def test_to_dict_structure() -> None:
@@ -339,13 +339,18 @@ def test_to_dict_structure() -> None:
     assert "system.io" in result
     assert "system.io.export" in result
 
-    assert len(result["application"]) == 1
-    assert len(result["application.start"]) == 1
-    assert len(result["system.io"]) == 1
-    assert len(result["system.io.export"]) == 1
+    assert "subscribers" in result["application"]
+    assert "subscribers" in result["application.start"]
+    assert "subscribers" in result["system.io"]
+    assert "subscribers" in result["system.io.export"]
 
-    assert any("process_1" in sub for sub in result["system.io"])
-    assert any("<lambda>" in sub for sub in result["application"])
+    assert len(result["application"]["subscribers"]) == 1
+    assert len(result["application.start"]["subscribers"]) == 1
+    assert len(result["system.io"]["subscribers"]) == 1
+    assert len(result["system.io.export"]["subscribers"]) == 1
+
+    assert any("process_1" in sub for sub in result["system.io"]["subscribers"])
+    assert any("<lambda>" in sub for sub in result["application"]["subscribers"])
 
 
 def test_to_string_is_valid_json() -> None:

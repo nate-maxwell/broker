@@ -37,10 +37,10 @@ def test_default_exception_handler_stops_delivery() -> None:
     assert "should_not_run" not in calls
 
 
-def test_set_exception_handler_to_none_raises() -> None:
+def test_set_subscription_exception_handler_to_none_raises() -> None:
     """Test that setting exception handler to None re-raises handlers."""
     broker.clear()
-    broker.set_exception_handler(None)
+    broker.set_subscriber_exception_handler(None)
 
     def failing_handler(data: str) -> None:
         raise ValueError("Test exception")
@@ -54,7 +54,7 @@ def test_set_exception_handler_to_none_raises() -> None:
 def test_silent_exception_handler_continues() -> None:
     """Test that silent handler continues to next subscriber."""
     broker.clear()
-    broker.set_exception_handler(handlers.silent_exception_handler)
+    broker.set_subscriber_exception_handler(handlers.silent_exception_handler)
     calls: list[str] = []
 
     def failing_handler(data: str) -> None:
@@ -77,7 +77,7 @@ def test_collecting_exception_handler() -> None:
     """Test that collecting handler captures exception information."""
     broker.clear()
     handlers.exceptions_caught.clear()
-    broker.set_exception_handler(handlers.collecting_exception_handler)
+    broker.set_subscriber_exception_handler(handlers.collecting_exception_handler)
 
     def failing_handler1(data: str) -> None:
         raise ValueError("First error")
@@ -107,7 +107,7 @@ def test_custom_handler_stops_on_specific_exception() -> None:
             return True
         return False
 
-    broker.set_exception_handler(custom_handler)
+    broker.set_subscriber_exception_handler(custom_handler)
 
     def fails_with_value_error(data: str) -> None:
         calls.append("value_error")
@@ -150,7 +150,7 @@ def test_custom_handler_stops_on_specific_exception() -> None:
 async def test_exception_handler_with_emit_async() -> None:
     """Test that exception handler works with emit_async()."""
     broker.clear()
-    broker.set_exception_handler(handlers.silent_exception_handler)
+    broker.set_subscriber_exception_handler(handlers.silent_exception_handler)
     calls: list[str] = []
 
     async def failing_async_handler(data: str) -> None:
@@ -184,7 +184,7 @@ async def test_exception_handler_stops_async_delivery() -> None:
     def stop_handler(callback, namespace, exception):
         return True
 
-    broker.set_exception_handler(stop_handler)
+    broker.set_subscriber_exception_handler(stop_handler)
 
     async def failing_handler(data: str) -> None:
         calls.append("failing")
@@ -213,7 +213,7 @@ def test_exception_handler_receives_correct_arguments() -> None:
         handler_args.append((callback.__name__, namespace, type(exception).__name__))
         return False
 
-    broker.set_exception_handler(capture_handler)
+    broker.set_subscriber_exception_handler(capture_handler)
 
     def my_failing_callback(data: str) -> None:
         raise ValueError("Test")
@@ -231,7 +231,7 @@ def test_exception_handler_with_instance_method() -> None:
     """Test that exception handler works with instance methods."""
     broker.clear()
     handlers.exceptions_caught.clear()
-    broker.set_exception_handler(handlers.collecting_exception_handler)
+    broker.set_subscriber_exception_handler(handlers.collecting_exception_handler)
 
     class Handler:
         def on_event(self, data: str) -> None:
@@ -253,7 +253,7 @@ def test_exception_handler_with_lambda() -> None:
     """Test that exception handler works with lambda functions."""
     broker.clear()
     handlers.exceptions_caught.clear()
-    broker.set_exception_handler(handlers.collecting_exception_handler)
+    broker.set_subscriber_exception_handler(handlers.collecting_exception_handler)
 
     # noinspection PyPep8
     lambda_handler = lambda data: (_ for _ in ()).throw(ValueError("Lambda error"))
@@ -266,7 +266,7 @@ def test_exception_handler_with_lambda() -> None:
 def test_exception_only_affects_one_namespace() -> None:
     """Test that exception in one namespace doesn't affect another."""
     broker.clear()
-    broker.set_exception_handler(handlers.silent_exception_handler)
+    broker.set_subscriber_exception_handler(handlers.silent_exception_handler)
     calls: list[str] = []
 
     def failing_handler(data: str) -> None:
@@ -294,7 +294,7 @@ def test_exception_only_affects_one_namespace() -> None:
 def test_exception_with_wildcard_subscribers() -> None:
     """Test exception handling with wildcard namespace subscriptions."""
     broker.clear()
-    broker.set_exception_handler(handlers.silent_exception_handler)
+    broker.set_subscriber_exception_handler(handlers.silent_exception_handler)
     calls: list[str] = []
 
     def failing_wildcard(data: str) -> None:
@@ -317,7 +317,7 @@ def test_multiple_exceptions_in_same_emit() -> None:
     """Test handling multiple exceptions from different subscribers."""
     broker.clear()
     handlers.exceptions_caught.clear()
-    broker.set_exception_handler(handlers.collecting_exception_handler)
+    broker.set_subscriber_exception_handler(handlers.collecting_exception_handler)
 
     def handler1(data: str) -> None:
         raise ValueError("Error 1")
@@ -344,7 +344,7 @@ def test_multiple_exceptions_in_same_emit() -> None:
 def test_successful_handlers_before_and_after_exception() -> None:
     """Test that successful handlers run even when another handler fails."""
     broker.clear()
-    broker.set_exception_handler(handlers.silent_exception_handler)
+    broker.set_subscriber_exception_handler(handlers.silent_exception_handler)
     calls: list[str] = []
 
     def handler1(data: str) -> None:
@@ -370,7 +370,7 @@ def test_successful_handlers_before_and_after_exception() -> None:
 async def test_mixed_sync_async_with_exceptions() -> None:
     """Test exception handling with mixed sync and async subscribers."""
     broker.clear()
-    broker.set_exception_handler(handlers.silent_exception_handler)
+    broker.set_subscriber_exception_handler(handlers.silent_exception_handler)
     calls: list[str] = []
 
     def sync_handler(data: str) -> None:
@@ -406,7 +406,7 @@ def test_exception_handler_with_priority_ordering() -> None:
         execution_order.append(priority)
         return False
 
-    broker.set_exception_handler(tracking_handler)
+    broker.set_subscriber_exception_handler(tracking_handler)
 
     def priority_10(data: str) -> None:
         raise ValueError("priority 10")

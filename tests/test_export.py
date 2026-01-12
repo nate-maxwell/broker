@@ -81,7 +81,7 @@ def test_export_includes_metadata(tmp_path: Path) -> None:
     with open(output_file) as f:
         data = json.load(f)
 
-    subscribers = data["test.event"]
+    subscribers = data["test.event"]["subscribers"]
 
     # Verify metadata is included
     assert any("[priority=10]" in s for s in subscribers)

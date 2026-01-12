@@ -243,6 +243,7 @@ def test_transformer_error_raises() -> None:
     """Test that transformer errors are raised."""
     broker.clear()
     broker.clear_transformers()
+    broker.set_transformer_exception_handler(None)
 
     def failing_transformer(namespace: str, kwargs: dict) -> dict:
         raise ValueError("Transformer failed")
