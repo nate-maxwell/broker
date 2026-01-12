@@ -230,7 +230,7 @@ async def emit_async(namespace: str, **kwargs: Any) -> None:
 
 # noinspection PyUnusedLocal
 def register_subscriber(
-    namespace: str, callback: subscriber.CALLBACK, priority: int = 0
+    namespace: str, callback: subscriber.SUBSCRIBER, priority: int = 0
 ) -> None:
     """
     Register a callback function to a namespace.
@@ -238,7 +238,7 @@ def register_subscriber(
     Args:
         namespace (str): Event namespace
             (e.g., 'system.io.file_open' or 'system.*').
-        callback (CALLBACK): Function to call when events are emitted. Can be
+        callback (Callable): Function to call when events are emitted. Can be
             sync or async.
         priority (int): The priority used for callback execution order.
             Higher priorities are ran before lower priorities.
@@ -254,7 +254,7 @@ def register_subscriber(
 # noinspection PyUnusedLocal
 def subscribe(
     namespace: str, priority: int = 0
-) -> Callable[[subscriber.CALLBACK], subscriber.CALLBACK]:
+) -> Callable[[subscriber.SUBSCRIBER], subscriber.SUBSCRIBER]:
     """
     Decorator to register a function or static method as a subscriber.
 
@@ -274,13 +274,13 @@ def subscribe(
 
 
 # noinspection PyUnusedLocal
-def unregister_subscriber(namespace: str, callback: subscriber.CALLBACK) -> None:
+def unregister_subscriber(namespace: str, callback: subscriber.SUBSCRIBER) -> None:
     """
     Remove a callback from a namespace.
 
     Args:
         namespace (str): Event namespace.
-        callback (CALLBACK): Function to remove.
+        callback (Callable): Function to remove.
     Notes:
         Emits a notify event when subscriber is unregistered and when a
         namespace is removed from consolidation. Notify emits the used
@@ -297,7 +297,7 @@ def set_subscriber_exception_handler(
     The handler is called when a subscriber raises an exception during emit.
 
     Args:
-        handler: Callable with signature (CALLBACK, str, Exception) -> bool.
+        handler: Callable with signature (SUBSCRIBER, str, Exception) -> bool.
                  Returns True to stop delivery, False to continue.
                  Pass None to restore default behavior (re-raise exceptions).
     Example:
@@ -338,7 +338,7 @@ def get_live_subscriber_count(namespace: str) -> int:
 
 
 # noinspection PyUnusedLocal
-def is_subscribed(callback: subscriber.CALLBACK, namespace: str) -> bool:
+def is_subscribed(callback: subscriber.SUBSCRIBER, namespace: str) -> bool:
     """
     Check if a specific callback is subscribed to a namespace.
 
@@ -353,7 +353,7 @@ def is_subscribed(callback: subscriber.CALLBACK, namespace: str) -> bool:
 
 # noinspection PyUnresolvedReferences
 # noinspection PyUnusedLocal
-def get_subscriptions(callback: subscriber.CALLBACK) -> list[str]:
+def get_subscriptions(callback: subscriber.SUBSCRIBER) -> list[str]:
     """
     Get all namespaces that a callback is subscribed to.
 
@@ -401,7 +401,7 @@ def get_live_subscribers(namespace: str) -> list[subscriber.Subscriber]:
 
 # noinspection PyUnusedLocal
 def register_transformer(
-    namespace: str, transformer_: transformer.TRANSFORMER, priority: int = 0
+    namespace: str, callback: transformer.TRANSFORMER, priority: int = 0
 ) -> None:
     """
     Register a transformer for a namespace.
@@ -413,7 +413,7 @@ def register_transformer(
 
     Args:
         namespace (str): Namespace pattern (supports wildcards like 'system.*').
-        transformer_ (TRANSFORMER): Function that receives (namespace, kwargs)
+        callback (TRANSFORMER): Function that receives (namespace, kwargs)
             and returns modified kwargs or None to block.
         priority (int): Execution order (higher = earlier, default 0).
     Example:
@@ -450,18 +450,17 @@ def transform(
 
 
 # noinspection PyUnusedLocal
-def unregister_transformer(
-    namespace: str, transformer_: transformer.TRANSFORMER
-) -> None:
+def unregister_transformer(namespace: str, callback: transformer.TRANSFORMER) -> None:
     """
     Remove a transformer from a namespace.
 
     Args:
         namespace (str): The namespace the transformer is registered to.
-        transformer_ (TRANSFORMER): The transformer function to remove.
+        callback (TRANSFORMER): The transformer function to remove.
     """
 
 
+# noinspection PyUnusedLocal
 def set_transformer_exception_handler(
     handler: Optional[transformer.TRANSFORMER_EXCEPTION_HANDLER],
 ) -> None:
