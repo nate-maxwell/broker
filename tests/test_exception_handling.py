@@ -208,7 +208,7 @@ def test_exception_handler_receives_correct_arguments() -> None:
     handler_args: list[tuple] = []
 
     def capture_handler(
-        callback: subscriber.CALLBACK, namespace: str, exception: Exception
+        callback: subscriber.SUBSCRIBER, namespace: str, exception: Exception
     ) -> bool:
         handler_args.append((callback.__name__, namespace, type(exception).__name__))
         return False

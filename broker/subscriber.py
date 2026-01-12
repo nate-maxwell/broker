@@ -16,7 +16,7 @@ from typing import Coroutine
 from typing import Optional
 from typing import Union
 
-CALLBACK = Union[Callable[..., Any], Callable[..., Coroutine[Any, Any, Any]]]
+SUBSCRIBER = Union[Callable[..., Any], Callable[..., Coroutine[Any, Any, Any]]]
 """
 The callback end point that event info is forwarded to. These are the actions
 that 'subscribe' and will execute when an event is triggered. Can be sync or
@@ -51,6 +51,6 @@ class Subscriber(object):
     """The namespace the subscriber is listening to."""
 
     @property
-    def callback(self) -> Optional[CALLBACK]:
+    def callback(self) -> Optional[SUBSCRIBER]:
         """Get the live callback, or None if collected."""
         return self.weak_callback()

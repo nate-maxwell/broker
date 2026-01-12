@@ -20,7 +20,7 @@ from broker import subscriber
 logger = logging.getLogger(__name__)
 
 
-SUBSCRIPTION_EXCEPTION_HANDLER = Callable[[subscriber.CALLBACK, str, Exception], bool]
+SUBSCRIPTION_EXCEPTION_HANDLER = Callable[[subscriber.SUBSCRIBER, str, Exception], bool]
 """
 Signature for exception handlers.
 
@@ -55,7 +55,7 @@ def get_callable_name(callable_: Callable) -> str:
 
 
 def stop_and_log_exception_handler(
-    callback: subscriber.CALLBACK, namespace: str, exception: Exception
+    callback: subscriber.SUBSCRIBER, namespace: str, exception: Exception
 ) -> bool:
     """
     Handler that stops message delivery and logs the raised exception before
@@ -72,7 +72,7 @@ def stop_and_log_exception_handler(
     return STOP
 
 
-def silent_exception_handler(_: subscriber.CALLBACK, __: str, ___: Exception) -> bool:
+def silent_exception_handler(_: subscriber.SUBSCRIBER, __: str, ___: Exception) -> bool:
     """Silently ignore all exceptions."""
     return CONTINUE
 
@@ -81,7 +81,7 @@ exceptions_caught = []
 
 
 def collecting_exception_handler(
-    callback: subscriber.CALLBACK, namespace: str, exception: Exception
+    callback: subscriber.SUBSCRIBER, namespace: str, exception: Exception
 ) -> bool:
     """
     Collect exceptions for batch processing.

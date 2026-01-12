@@ -92,7 +92,7 @@ class EmitArgumentError(Exception):
 
 
 def _make_weak_ref(
-    callback: subscriber.CALLBACK,
+    callback: subscriber.SUBSCRIBER,
     namespace: str,
     on_collected_callback: Callable[[str], None],
 ) -> Union[weakref.ref[Any], weakref.WeakMethod]:
@@ -119,8 +119,8 @@ def _make_subscribe_decorator(broker_module: "Broker") -> Callable:
 
     def subscribe_(
         namespace: str, priority: int = 0
-    ) -> Callable[[subscriber.CALLBACK], subscriber.CALLBACK]:
-        def decorator(func: subscriber.CALLBACK) -> subscriber.CALLBACK:
+    ) -> Callable[[subscriber.SUBSCRIBER], subscriber.SUBSCRIBER]:
+        def decorator(func: subscriber.SUBSCRIBER) -> subscriber.SUBSCRIBER:
             broker_module.register_subscriber(namespace, func, priority)
             return func
 
@@ -240,7 +240,7 @@ class Broker(ModuleType):
     # -----Subscriber Management-----------------------------------------------
 
     @staticmethod
-    def _get_callback_params(callback: subscriber.CALLBACK) -> Union[set[str], None]:
+    def _get_callback_params(callback: subscriber.SUBSCRIBER) -> Union[set[str], None]:
         """
         Extract parameter names from a callback function.
 
@@ -287,7 +287,7 @@ class Broker(ModuleType):
             ):
                 self.emit(namespace=BROKER_ON_NAMESPACE_DELETED, using=namespace)
 
-    def _on_callback_collected(self, namespace: str) -> None:
+    def _on_subscriber_collected(self, namespace: str) -> None:
         """Called when a subscriber is garbage collected."""
         if namespace in _NAMESPACE_REGISTRY:
             entry = _NAMESPACE_REGISTRY[namespace]
@@ -328,11 +328,13 @@ class Broker(ModuleType):
             self.emit(namespace=BROKER_ON_TRANSFORMER_COLLECTED, using=namespace)
 
     def register_subscriber(
-        self, namespace: str, callback: subscriber.CALLBACK, priority: int = 0
+        self, namespace: str, callback: subscriber.SUBSCRIBER, priority: int = 0
     ) -> None:
         callback_params = self._get_callback_params(callback)
         is_async = asyncio.iscoroutinefunction(callback)
-        weak_callback = _make_weak_ref(callback, namespace, self._on_callback_collected)
+        weak_callback = _make_weak_ref(
+            callback, namespace, self._on_subscriber_collected
+        )
         sub = subscriber.Subscriber(
             weak_callback=weak_callback,
             priority=priority,
@@ -353,7 +355,7 @@ class Broker(ModuleType):
                 entry["signature"] = None
             elif existing_params != callback_params:
                 raise SignatureMismatchError(
-                    f"Callback parameter mismatch for namespace '{namespace}'. "
+                    f"Subscriber parameter mismatch for namespace '{namespace}'. "
                     f"Expected parameters: {sorted(existing_params)}, "
                     f"but got: {sorted(callback_params)}"
                 )
@@ -374,7 +376,7 @@ class Broker(ModuleType):
             self.emit(namespace=BROKER_ON_SUBSCRIBER_ADDED, using=namespace)
 
     def unregister_subscriber(
-        self, namespace: str, callback: subscriber.CALLBACK
+        self, namespace: str, callback: subscriber.SUBSCRIBER
     ) -> None:
         if namespace in _NAMESPACE_REGISTRY:
             entry = _NAMESPACE_REGISTRY[namespace]
@@ -502,11 +504,11 @@ class Broker(ModuleType):
     def register_transformer(
         self,
         namespace: str,
-        transformer_callback: transformer.TRANSFORMER,
+        callback: transformer.TRANSFORMER,
         priority: int = 0,
     ) -> None:
         weak_transformer = _make_weak_ref(
-            transformer_callback, namespace, self._on_transformer_collected
+            callback, namespace, self._on_transformer_collected
         )
 
         transformer_obj = transformer.Transformer(
@@ -534,12 +536,12 @@ class Broker(ModuleType):
             self.emit(namespace=BROKER_ON_TRANSFORMER_ADDED, using=namespace)
 
     def unregister_transformer(
-        self, namespace: str, transformer_callback: transformer.TRANSFORMER
+        self, namespace: str, callback: transformer.TRANSFORMER
     ) -> None:
         if namespace in _NAMESPACE_REGISTRY:
             entry = _NAMESPACE_REGISTRY[namespace]
             entry["transformers"] = [
-                t for t in entry["transformers"] if t.callback != transformer_callback
+                t for t in entry["transformers"] if t.callback != callback
             ]
 
             if (
@@ -688,7 +690,7 @@ class Broker(ModuleType):
         )
 
     @staticmethod
-    def is_subscribed(callback: subscriber.CALLBACK, namespace: str) -> bool:
+    def is_subscribed(callback: subscriber.SUBSCRIBER, namespace: str) -> bool:
         if namespace not in _NAMESPACE_REGISTRY:
             return False
 
@@ -698,7 +700,7 @@ class Broker(ModuleType):
         return False
 
     @staticmethod
-    def get_subscriptions(callback: subscriber.CALLBACK) -> list[str]:
+    def get_subscriptions(callback: subscriber.SUBSCRIBER) -> list[str]:
         subscriptions = []
         for namespace, entry in _NAMESPACE_REGISTRY.items():
             for sub in entry["subscribers"]:
