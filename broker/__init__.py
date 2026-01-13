@@ -240,14 +240,14 @@ class Broker(ModuleType):
     # -----Subscriber Management-----------------------------------------------
 
     @staticmethod
-    def _get_callback_params(callback: subscriber.SUBSCRIBER) -> Union[set[str], None]:
+    def _get_callback_params(callback: subscriber.SUBSCRIBER) -> Optional[set[str]]:
         """
         Extract parameter names from a callback function.
 
         Args:
             callback (CALLBACK): The callback function to inspect.
         Returns:
-            Union[set[str], None]: Set of parameter names, or None if callback
+            Optional[set[str]]: Set of parameter names, or None if callback
                 accepts **kwargs.
         """
         sig = inspect.signature(callback)
@@ -288,9 +288,13 @@ class Broker(ModuleType):
     ) -> None:
         callback_params = self._get_callback_params(callback)
         is_async = asyncio.iscoroutinefunction(callback)
+
         weak_callback = _make_weak_ref(
-            callback, namespace, self._on_subscriber_collected
+            callback=callback,
+            namespace=namespace,
+            on_collected_callback=self._on_subscriber_collected
         )
+
         sub = subscriber.Subscriber(
             weak_callback=weak_callback,
             priority=priority,
@@ -298,8 +302,7 @@ class Broker(ModuleType):
             namespace=namespace,
         )
 
-        is_new_namespace = namespace not in _NAMESPACE_REGISTRY
-        self._ensure_namespace_exists(namespace)
+        is_new_namespace = self._ensure_namespace_exists(namespace)
         entry = _NAMESPACE_REGISTRY[namespace]
 
         # Validate/set signature
@@ -334,19 +337,21 @@ class Broker(ModuleType):
     def unregister_subscriber(
         self, namespace: str, callback: subscriber.SUBSCRIBER
     ) -> None:
-        if namespace in _NAMESPACE_REGISTRY:
-            entry = _NAMESPACE_REGISTRY[namespace]
-            entry["subscribers"] = [
-                sub for sub in entry["subscribers"] if sub.callback != callback
-            ]
+        if namespace not in _NAMESPACE_REGISTRY:
+            return
 
-            if (
-                not namespace.startswith(_NOTIFY_NAMESPACE_ROOT)
-                and self.notify_on_unsubscribe
-            ):
-                self.emit(namespace=BROKER_ON_SUBSCRIBER_REMOVED, using=namespace)
+        entry = _NAMESPACE_REGISTRY[namespace]
+        entry["subscribers"] = [
+            sub for sub in entry["subscribers"] if sub.callback != callback
+        ]
 
-            self._cleanup_namespace_if_empty(namespace)
+        if (
+            not namespace.startswith(_NOTIFY_NAMESPACE_ROOT)
+            and self.notify_on_unsubscribe
+        ):
+            self.emit(namespace=BROKER_ON_SUBSCRIBER_REMOVED, using=namespace)
+
+        self._cleanup_namespace_if_empty(namespace)
 
     def _validate_emit_args(self, namespace: str, kwargs: dict[str, Any]) -> None:
         """
@@ -392,25 +397,31 @@ class Broker(ModuleType):
             return  # Event blocked
 
         for reg_namespace, entry in _NAMESPACE_REGISTRY.items():
-            if self._matches(namespace, reg_namespace):
-                sorted_subscribers = sorted(
-                    entry["subscribers"], key=lambda s: s.priority, reverse=True
-                )
-                for sub in sorted_subscribers:
-                    callback = sub.callback
+            if not self._matches(namespace, reg_namespace):
+                continue
 
-                    if callback is not None and not sub.is_async:
-                        try:
-                            callback(**transformed_kwargs)
-                        except Exception as e:
-                            if self._subscriptions_exception_handler is not None:
-                                stop = self._subscriptions_exception_handler(
-                                    callback, namespace, e
-                                )
-                                if stop:
-                                    break
-                            else:
-                                raise
+            sorted_subscribers = sorted(
+                entry["subscribers"], key=lambda s: s.priority, reverse=True
+            )
+            for sub in sorted_subscribers:
+                callback = sub.callback
+                if callback is None:
+                    continue
+                
+                if sub.is_async:
+                    continue
+
+                try:
+                    callback(**transformed_kwargs)
+                except Exception as e:
+                    if self._subscriptions_exception_handler is None:
+                        raise
+
+                    stop = self._subscriptions_exception_handler(
+                        callback, namespace, e
+                    )
+                    if stop:
+                        break
 
         if not namespace.startswith(_NOTIFY_NAMESPACE_ROOT) and (
             self.notify_on_emit or self.notify_on_emit_all
@@ -425,30 +436,32 @@ class Broker(ModuleType):
             return  # Event blocked
 
         for reg_namespace, entry in _NAMESPACE_REGISTRY.items():
-            if self._matches(namespace, reg_namespace):
-                sorted_subscribers = sorted(
-                    entry["subscribers"], key=lambda s: s.priority, reverse=True
-                )
-                for sub in sorted_subscribers:
-                    callback = sub.callback
+            if not self._matches(namespace, reg_namespace):
+                continue
 
-                    if callback is None:
-                        continue
+            sorted_subscribers = sorted(
+                entry["subscribers"], key=lambda s: s.priority, reverse=True
+            )
+            for sub in sorted_subscribers:
+                callback = sub.callback
 
-                    try:
-                        if sub.is_async:
-                            await callback(**transformed_kwargs)
-                        else:
-                            callback(**transformed_kwargs)
-                    except Exception as e:
-                        if self._subscriptions_exception_handler is not None:
-                            stop = self._subscriptions_exception_handler(
-                                callback, namespace, e
-                            )
-                            if stop:
-                                break
-                        else:
-                            raise
+                if callback is None:
+                    continue
+
+                try:
+                    if sub.is_async:
+                        await callback(**transformed_kwargs)
+                    else:
+                        callback(**transformed_kwargs)
+                except Exception as e:
+                    if self._subscriptions_exception_handler is None:
+                        raise
+
+                    stop = self._subscriptions_exception_handler(
+                        callback, namespace, e
+                    )
+                    if stop:
+                        break
 
         if not namespace.startswith(_NOTIFY_NAMESPACE_ROOT) and (
             self.notify_on_emit_async or self.notify_on_emit_all
@@ -484,17 +497,17 @@ class Broker(ModuleType):
         priority: int = 0,
     ) -> None:
         weak_transformer = _make_weak_ref(
-            callback, namespace, self._on_transformer_collected
+            callback=callback,
+            namespace=namespace,
+            on_collected_callback=self._on_transformer_collected
         )
 
         transformer_obj = transformer.Transformer(
             weak_callback=weak_transformer, namespace=namespace, priority=priority
         )
 
-        is_new_namespace = namespace not in _NAMESPACE_REGISTRY
-        self._ensure_namespace_exists(namespace)
+        is_new_namespace = self._ensure_namespace_exists(namespace)
         entry = _NAMESPACE_REGISTRY[namespace]
-
         entry["transformers"].append(transformer_obj)
         entry["transformers"].sort(key=lambda t: t.priority, reverse=True)
 
@@ -514,19 +527,21 @@ class Broker(ModuleType):
     def unregister_transformer(
         self, namespace: str, callback: transformer.TRANSFORMER
     ) -> None:
-        if namespace in _NAMESPACE_REGISTRY:
-            entry = _NAMESPACE_REGISTRY[namespace]
-            entry["transformers"] = [
-                t for t in entry["transformers"] if t.callback != callback
-            ]
+        if namespace not in _NAMESPACE_REGISTRY:
+            return
 
-            if (
-                not namespace.startswith(_NOTIFY_NAMESPACE_ROOT)
-                and self.notify_on_transformer_remove
-            ):
-                self.emit(namespace=BROKER_ON_TRANSFORMER_REMOVED, using=namespace)
+        entry = _NAMESPACE_REGISTRY[namespace]
+        entry["transformers"] = [
+            t for t in entry["transformers"] if t.callback != callback
+        ]
 
-            self._cleanup_namespace_if_empty(namespace)
+        if (
+            not namespace.startswith(_NOTIFY_NAMESPACE_ROOT)
+            and self.notify_on_transformer_remove
+        ):
+            self.emit(namespace=BROKER_ON_TRANSFORMER_REMOVED, using=namespace)
+
+        self._cleanup_namespace_if_empty(namespace)
 
     def set_transformer_exception_handler(
         self,
@@ -584,6 +599,8 @@ class Broker(ModuleType):
         ]
         for ns in empty_ns:
             del _NAMESPACE_REGISTRY[ns]
+            if self.notify_on_del_namespace:
+                self.emit(namespace=BROKER_ON_NAMESPACE_DELETED, using=ns)
 
     @staticmethod
     def get_all_transformer_namespaces() -> list[str]:
@@ -663,13 +680,19 @@ class Broker(ModuleType):
 
     @staticmethod
     def _ensure_namespace_exists(namespace: str) -> None:
-        """Ensure namespace entry exists in registry."""
+        """
+        Ensure namespace entry exists in registry.
+        Returns True if the namespace was added, False if it already existed.
+        """
         if namespace not in _NAMESPACE_REGISTRY:
             _NAMESPACE_REGISTRY[namespace] = {
                 "subscribers": [],
                 "transformers": [],
                 "signature": None,
             }
+            return True
+
+        return False
 
     # -----Introspection API---------------------------------------------------
 
@@ -697,6 +720,7 @@ class Broker(ModuleType):
         for sub in _NAMESPACE_REGISTRY[namespace]["subscribers"]:
             if sub.callback == callback:
                 return True
+
         return False
 
     @staticmethod
@@ -707,6 +731,7 @@ class Broker(ModuleType):
                 if sub.callback == callback:
                     subscriptions.append(namespace)
                     break
+
         return sorted(subscriptions)
 
     @staticmethod
@@ -717,6 +742,7 @@ class Broker(ModuleType):
     def get_live_subscribers(namespace: str) -> list[subscriber.Subscriber]:
         if namespace not in _NAMESPACE_REGISTRY:
             return []
+
         return [
             sub
             for sub in _NAMESPACE_REGISTRY[namespace]["subscribers"]
@@ -733,6 +759,7 @@ class Broker(ModuleType):
     def get_live_transformer_count(namespace: str) -> int:
         if namespace not in _NAMESPACE_REGISTRY:
             return 0
+
         return sum(
             1
             for trans in _NAMESPACE_REGISTRY[namespace]["transformers"]
@@ -747,6 +774,7 @@ class Broker(ModuleType):
         for trans in _NAMESPACE_REGISTRY[namespace]["transformers"]:
             if trans.callback == callback:
                 return True
+
         return False
 
     @staticmethod
@@ -757,6 +785,7 @@ class Broker(ModuleType):
                 if trans.callback == callback:
                     transformations.append(namespace)
                     break
+
         return sorted(transformations)
 
     @staticmethod
@@ -767,6 +796,7 @@ class Broker(ModuleType):
     def get_live_transformers(namespace: str) -> list[transformer.Transformer]:
         if namespace not in _NAMESPACE_REGISTRY:
             return []
+
         return [
             trans
             for trans in _NAMESPACE_REGISTRY[namespace]["transformers"]
@@ -782,6 +812,7 @@ class Broker(ModuleType):
             # OR namespace 'system.*' should match pattern 'system.io.file'
             if self._matches(namespace, pattern) or self._matches(pattern, namespace):
                 matching.append(namespace)
+
         return sorted(matching)
 
     @staticmethod
@@ -821,7 +852,7 @@ class Broker(ModuleType):
         total_subscribers = sum(
             len(entry["subscribers"]) for entry in _NAMESPACE_REGISTRY.values()
         )
-        total_live = sum(
+        total_live_subscribers = sum(
             sum(1 for sub in entry["subscribers"] if sub.callback is not None)
             for entry in _NAMESPACE_REGISTRY.values()
         )
@@ -863,8 +894,8 @@ class Broker(ModuleType):
         return {
             "total_namespaces": namespace_count,
             "total_subscribers": total_subscribers,
-            "total_live_subscribers": total_live,
-            "dead_subscriber_references": total_subscribers - total_live,
+            "total_live_subscribers": total_live_subscribers,
+            "dead_subscriber_references": total_subscribers - total_live_subscribers,
             "total_transformers": total_transformers,
             "total_live_transformers": total_live_transformers,
             "dead_transformer_references": total_transformers - total_live_transformers,
@@ -872,7 +903,7 @@ class Broker(ModuleType):
             "namespaces_with_sync": namespaces_with_sync,
             "namespaces_with_transformers": namespaces_with_transformers,
             "average_subscribers_per_namespace": (
-                total_live / namespace_count if namespace_count > 0 else 0
+                total_live_subscribers / namespace_count if namespace_count > 0 else 0
             ),
             "average_transformers_per_namespace": (
                 total_live_transformers / namespace_count if namespace_count > 0 else 0
@@ -944,11 +975,9 @@ class Broker(ModuleType):
         return data
 
     def to_string(self) -> str:
-        """Returns a string representation of the broker."""
         return json.dumps(self.to_dict(), indent=4)
 
     def export(self, filepath: Union[str, os.PathLike]) -> None:
-        """Export broker structure to filepath."""
         with open(filepath, "w") as outfile:
             json.dump(self.to_dict(), outfile, indent=4)
 
