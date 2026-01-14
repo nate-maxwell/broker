@@ -116,6 +116,7 @@ def _make_subscribe_decorator(broker_module: "Broker") -> Callable:
     def subscribe_(
         namespace: str, priority: int = 0
     ) -> Callable[[subscriber.SUBSCRIBER], subscriber.SUBSCRIBER]:
+
         def decorator(func: subscriber.SUBSCRIBER) -> subscriber.SUBSCRIBER:
             broker_module.register_subscriber(namespace, func, priority)
             return func
@@ -137,6 +138,7 @@ def _make_transformer_decorator(broker_module: "Broker") -> Callable:
     def transform_(
         namespace: str, priority: int = 0
     ) -> Callable[[transformer.TRANSFORMER], transformer.TRANSFORMER]:
+
         def decorator(func: transformer.TRANSFORMER) -> transformer.TRANSFORMER:
             broker_module.register_transformer(namespace, func, priority)
             return func
