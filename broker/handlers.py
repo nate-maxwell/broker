@@ -54,7 +54,7 @@ def get_callable_name(callable_: Callable) -> str:
 # -----Subscriber Exception Handlers-------------------------------------------
 
 
-def stop_and_log_exception_handler(
+def stop_and_log_subscriber_exception(
     callback: subscriber.SUBSCRIBER, namespace: str, exception: Exception
 ) -> bool:
     """
@@ -72,7 +72,20 @@ def stop_and_log_exception_handler(
     return STOP
 
 
-def silent_exception_handler(_: subscriber.SUBSCRIBER, __: str, ___: Exception) -> bool:
+def log_and_continue_subscriber_exception(
+    callback: subscriber.SUBSCRIBER, namespace: str, exception: Exception
+) -> bool:
+    """Log subscriber errors but continue processing."""
+    logger.warning(
+        f"Subscriber error (continuing): "
+        f"{get_callable_name(callback)} in {namespace}: {exception}"
+    )
+    return CONTINUE
+
+
+def silent_subscriber_exception(
+    _: subscriber.SUBSCRIBER, __: str, ___: Exception
+) -> bool:
     """Silently ignore all exceptions."""
     return CONTINUE
 
@@ -80,7 +93,7 @@ def silent_exception_handler(_: subscriber.SUBSCRIBER, __: str, ___: Exception) 
 exceptions_caught = []
 
 
-def collecting_exception_handler(
+def collect_subscriber_exception(
     callback: subscriber.SUBSCRIBER, namespace: str, exception: Exception
 ) -> bool:
     """
@@ -118,6 +131,17 @@ def stop_and_log_transformer_exception(
     return STOP
 
 
+def log_and_continue_transformer_exception(
+    transformer: TRANSFORMER, namespace: str, exception: Exception
+) -> bool:
+    """Log transformer errors but continue processing."""
+    logger.warning(
+        f"Transformer error (continuing): "
+        f"{get_callable_name(transformer)} in {namespace}: {exception}"
+    )
+    return CONTINUE
+
+
 def silent_transformer_exception(_: TRANSFORMER, __: str, ___: Exception) -> bool:
     """Silently ignore transformer exceptions and continue."""
     return CONTINUE
@@ -137,16 +161,5 @@ def collecting_transformer_exception(
             "exception": f"{exception.__class__.__name__}: {exception}",
             "exc_info": sys.exc_info(),
         }
-    )
-    return CONTINUE
-
-
-def log_and_continue_transformer_exception(
-    transformer: TRANSFORMER, namespace: str, exception: Exception
-) -> bool:
-    """Log transformer errors but continue processing."""
-    logger.warning(
-        f"Transformer error (continuing): "
-        f"{get_callable_name(transformer)} in {namespace}: {exception}"
     )
     return CONTINUE
