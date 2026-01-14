@@ -99,7 +99,7 @@ def get_matching_namespaces(pattern: str) -> list[str]:
     Returns:
         list[str]: List of matching namespace strings.
     Example:
-        >>> broker.get_matching_namespaces('system.*')
+        broker.get_matching_namespaces('system.*')
         ['system.io.file', 'system.io.network']
     """
 
@@ -116,8 +116,6 @@ def get_namespace_info(namespace: str) -> Optional[dict[str, object]]:
         Optional[dict[str, object]]: Dictionary with namespace details, or None
             if namespace doesn't exist.
     Example:
-        >>> info = broker.get_namespace_info('test.event')
-        >>> print(info)
         {
             'namespace': 'test.event',
             'subscriber_count': 3,
@@ -137,10 +135,6 @@ def get_all_namespace_info() -> dict[str, dict[str, object]]:
 
     Returns:
         dict[str, dict[str, object]]: Dictionary mapping namespace to info dict.
-    Example:
-        >>> all_info = broker.get_all_namespace_info()
-        >>> for ns, info in all_info.items():
-        ...     print(f"{ns}: {info['live_subscriber_count']} live subscribers")
     """
 
 
@@ -153,8 +147,6 @@ def get_statistics() -> dict[str, object]:
         dict[str, object]: Dictionary with broker-wide statistics.
 
     Example:
-        >>> stats = broker.get_statistics()
-        >>> print(stats)
         {
             "total_namespaces": 10,
             "total_subscribers": 45,
@@ -261,15 +253,9 @@ def subscribe(
     To register an instance referencing class method (one using 'self'),
     use broker.register_subscriber('source', 'event_name', self.method).
 
-    Usage:
-        @subscribe('system.file.io', 5)
-        def on_file_open(filepath: str) -> None:
-            print(f'File opened: {filepath}')
     Args:
         namespace (str): The event namespace to subscribe to.
         priority (int): The execution priority. Defaults to 0.
-    Returns:
-        Callable: Decorator function that registers the subscriber.
     """
 
 
@@ -297,19 +283,10 @@ def set_subscriber_exception_handler(
     The handler is called when a subscriber raises an exception during emit.
 
     Args:
-        handler: Callable with signature (SUBSCRIBER, str, Exception) -> bool.
-                 Returns True to stop delivery, False to continue.
-                 Pass None to restore default behavior (re-raise exceptions).
-    Example:
-        def my_handler(callback: Callable, namespace: str, exc: Exception) -> bool:
-            print(f"Error in {namespace}: {exc}")
-            return False  # Continue
-
-        broker.set_subscriber_exception_handler(my_handler)
-
-        # Or use the built-in default handler
-        import broker
-        broker.set_subscriber_exception_handler(broker.default_exception_handler)
+        Optional[handlers.SUBSCRIPTION_EXCEPTION_HANDLER]:
+            Callable with signature (SUBSCRIBER, str, Exception) -> bool.
+            Returns True to stop delivery, False to continue.
+            Pass None to restore default behavior (re-raise exceptions).
     """
 
 
@@ -362,6 +339,8 @@ def get_subscriptions(callback: subscriber.SUBSCRIBER) -> list[str]:
     Returns:
         list[str]: List of namespace strings the callback is subscribed to.
     Example:
+        >>> import broker
+        ...
         >>> def my_handler(data: str): pass
         >>> broker.register_subscriber('test.one', my_handler)
         >>> broker.register_subscriber('test.two', my_handler)
@@ -416,13 +395,6 @@ def register_transformer(
         callback (TRANSFORMER): Function that receives (namespace, kwargs)
             and returns modified kwargs or None to block.
         priority (int): Execution order (higher = earlier, default 0).
-    Example:
-        def add_timestamp(namespace: str, kwargs: dict[str, Any]) -> dict:
-            kwargs['timestamp'] = time.time()
-
-            return kwargs
-
-        broker.register_transformer('system.*', add_timestamp, priority=10)
     """
 
 
@@ -436,16 +408,9 @@ def transform(
     To register an instance referencing class method (one using 'self'),
     use broker.register_transformer('source', 'event_name', self.method).
 
-    Usage:
-        @transform('system.file.io', 5)
-        def add_timestamp(namespace: str, kwargs: dict) -> dict:
-            kwargs['timestamp'] = time.time()
-            return kwargs
     Args:
         namespace (str): The event namespace to transform data for.
         priority (int): The execution priority. Defaults to 0.
-    Returns:
-        Callable: Decorator function that registers the transformer.
     """
 
 
@@ -469,22 +434,10 @@ def set_transformer_exception_handler(
     The handler is called when a transformer raises an exception during emit.
 
     Args:
-        handler: Callable with signature (TRANSFORMER, str, Exception) -> bool.
-                 Returns True to stop delivery, False to continue.
-                 Pass None to restore default behavior (re-raise exceptions).
-    Example:
-        def custom_handler(
-        transformer: TRANSFORMER, namespace: str, exception: Exception
-        ) -> bool:
-            print(f"Transformer error: {exception}")
-
-            return False
-
-        broker.set_transformer_exception_handler(my_handler)
-
-        # Or use the built-in default handler
-        import broker
-        broker.set_transformer_exception_handler(broker.default_exception_handler)
+        Optional[transformer.TRANSFORMER_EXCEPTION_HANDLER]:
+            Callable with signature (TRANSFORMER, str, Exception) -> bool.
+            Returns True to stop delivery, False to continue.
+            Pass None to restore default behavior (re-raise exceptions).
     """
 
 
@@ -563,6 +516,8 @@ def get_transformations(callback: transformer.TRANSFORMER) -> list[str]:
     Returns:
         list[str]: List of namespace strings the callback transforms.
     Example:
+        >>> import broker
+        ...
         >>> def my_transformer(namespace: str, kwargs: dict) -> dict:
         ...     return kwargs
         >>> broker.register_transformer('test.one', my_transformer)
