@@ -1,5 +1,3 @@
-from cgitb import handler
-
 # Broker
 
 A simple message broker system for python.
