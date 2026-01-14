@@ -39,7 +39,6 @@ import inspect
 import json
 import weakref
 from types import ModuleType
-from typing import Union
 
 from broker.stub import *
 from broker import handlers
@@ -209,7 +208,7 @@ class Broker(ModuleType):
         # -----Exception Handlers-----
         self._subscriptions_exception_handler: Optional[
             handlers.SUBSCRIPTION_EXCEPTION_HANDLER
-        ] = handlers.stop_and_log_exception_handler
+        ] = handlers.stop_and_log_subscriber_exception
 
         self._transformer_exception_handler: Optional[
             handlers.TRANSFORMER_EXCEPTION_HANDLER
@@ -292,7 +291,7 @@ class Broker(ModuleType):
         weak_callback = _make_weak_ref(
             callback=callback,
             namespace=namespace,
-            on_collected_callback=self._on_subscriber_collected
+            on_collected_callback=self._on_subscriber_collected,
         )
 
         sub = subscriber.Subscriber(
@@ -407,7 +406,7 @@ class Broker(ModuleType):
                 callback = sub.callback
                 if callback is None:
                     continue
-                
+
                 if sub.is_async:
                     continue
 
@@ -417,9 +416,7 @@ class Broker(ModuleType):
                     if self._subscriptions_exception_handler is None:
                         raise
 
-                    stop = self._subscriptions_exception_handler(
-                        callback, namespace, e
-                    )
+                    stop = self._subscriptions_exception_handler(callback, namespace, e)
                     if stop:
                         break
 
@@ -457,9 +454,7 @@ class Broker(ModuleType):
                     if self._subscriptions_exception_handler is None:
                         raise
 
-                    stop = self._subscriptions_exception_handler(
-                        callback, namespace, e
-                    )
+                    stop = self._subscriptions_exception_handler(callback, namespace, e)
                     if stop:
                         break
 
@@ -499,7 +494,7 @@ class Broker(ModuleType):
         weak_transformer = _make_weak_ref(
             callback=callback,
             namespace=namespace,
-            on_collected_callback=self._on_transformer_collected
+            on_collected_callback=self._on_transformer_collected,
         )
 
         transformer_obj = transformer.Transformer(
@@ -587,8 +582,7 @@ class Broker(ModuleType):
 
         return current_kwargs
 
-    @staticmethod
-    def clear_transformers() -> None:
+    def clear_transformers(self) -> None:
         """Clear all registered transformers."""
         for entry in _NAMESPACE_REGISTRY.values():
             entry["transformers"].clear()
@@ -679,7 +673,7 @@ class Broker(ModuleType):
                 self.emit(namespace=BROKER_ON_NAMESPACE_DELETED, using=namespace)
 
     @staticmethod
-    def _ensure_namespace_exists(namespace: str) -> None:
+    def _ensure_namespace_exists(namespace: str) -> bool:
         """
         Ensure namespace entry exists in registry.
         Returns True if the namespace was added, False if it already existed.

@@ -1,3 +1,5 @@
+from cgitb import handler
+
 # Broker
 
 A simple message broker system for python.
@@ -42,7 +44,7 @@ broker.subscribe('file.io.*', my_func, priority=10)
 
 Higher priorities are executed first.
 
-## Expressive Arguments
+## Arguments
 
 Events can be emitted with any keyword arguments:
 ```python
@@ -64,40 +66,42 @@ delivery to remaining subscribers.
 
 ### Exception Handler Types
 
-**Stop on Exception (Default)**
-
 ```python
 from broker import handlers
 
 # Default behavior - logs error and stops delivery
-broker.set_subscriber_exception_handler(exceptions.stop_on_exception_handler)
-```
+broker.set_subscriber_exception_handler(
+    handlers.stop_and_log_subscriber_exception
+)
 
-**Silent Handler** - Ignores exceptions and continues delivery:
+# Log and Continue
+broker.set_subscriber_exception_handler(
+    handlers.log_and_continue_subscriber_exception
+)
 
-```python
-broker.set_subscriber_exception_handler(exceptions.silent_exception_handler)
-```
+# Silent Handler - Ignores exceptions and continues delivery
+broker.set_subscriber_exception_handler(
+    handlers.silent_subscriber_exception
+)
 
-**Collecting Handler** - Captures all exceptions for batch processing:
-
-```python
-exceptions.exceptions_caught.clear()
-broker.set_subscriber_exception_handler(exceptions.collecting_exception_handler)
+# Collecting Handler - Captures all exceptions for batch processing
+handlers.exceptions_caught.clear()
+broker.set_subscriber_exception_handler(
+    handlers.collect_subscriber_exception
+)
 
 broker.emit('event', data='test')
 
 # Review collected exceptions
-for error in exceptions.exceptions_caught:
+for error in handlers.exceptions_caught:
     print(f"Error in {error['namespace']}: {error['exception']}")
-```
 
-**Custom Handler** - Create your own exception policy:
-
-```python
+# Custom Handler - Create your own exception policy
 def custom_handler(callback: Callable, namespace: str, exception: Exception) -> bool:
+    callback_name = handlers.get_callable_name(callback)
+
     # Log the error
-    print(f"Error in {namespace}: {exception}")
+    print(f"Error in {namespace} from {callback_name}: {exception}")
 
     # Return True to stop delivery and raise, False to ignore and continue
     if isinstance(exception, ValueError):
@@ -182,6 +186,11 @@ from broker import handlers
 # Stop on transformer errors (logs and blocks event)
 broker.set_transformer_exception_handler(
     handlers.stop_and_log_transformer_exception
+)
+
+# Log transformer errors and continue
+broker.set_transformer_exception_handler(
+    handlers.log_and_continue_transformer_exception
 )
 
 # Silent mode - ignore transformer errors and continue
@@ -371,7 +380,7 @@ broker.register_subscriber('process', always_succeeds, priority=5)
 # With silent handler, both callbacks run even if first fails
 from broker import handlers
 
-broker.set_subscriber_exception_handler(handlers.silent_exception_handler)
+broker.set_subscriber_exception_handler(handlers.silent_subscriber_exception)
 
 broker.emit('process', value=-1)  # Both callbacks execute
 
