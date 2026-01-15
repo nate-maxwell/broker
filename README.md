@@ -1,133 +1,142 @@
 # Broker
 
-A simple message broker system for python.
-Supports sync and async events.
+A lightweight message broker system for Python with support for sync/async events, transformers, and flexible event routing.
 
-The broker comprises 5 concepts:
-* `The Broker` - The system itself.
-* `Namespaces` - The string groupings of subscribers + transformers that systems
-  communicate over.
-* `Subscribers` - End points that receive data.
-* `Transformers` - Middleware that alters, filters, or blocks data.
-* `Emitters` - Event producers.
-
-## Subscribing and Namespaces
-
-Subscriptions can be done either by decorating functions or static methods, or
-by using `broker.register_subscriber("namespace", callback)`.
-
-End-points can subscribe to namespaces using dot notation like
-`system.io.file_opened` or wildcard namespace subscriptions for specific levels
-downwards like `system.io.*`.
+## Quick Start
 
 ```python
 import broker
 
+# Subscribe to events
+@broker.subscribe("file.saved")
+def on_file_saved(filename: str, size: int) -> None:
+    print(f'Saved: {filename} ({size} bytes)')
+
+# Emit events
+broker.emit('file.saved', filename='document.txt', size=1024)
+```
+
+## Core Concepts
+
+The broker comprises 5 components:
+
+- **The Broker** - The central event system
+- **Namespaces** - Dot-notation event channels (e.g., `system.io.file_opened`)
+- **Subscribers** - Callbacks that receive events
+- **Transformers** - Middleware that modifies or filters events before delivery
+- **Emitters** - Code that produces events via `emit()` or `emit_async()`
+
+## Subscribing to Events
+
+### Basic Subscription
+
+```python
+import broker
+
+# Decorator style
 @broker.subscribe("system.io.file")
 def print_filename(filename: str) -> None:
-    print(f'User is attempting to access file: {filename}')
+    print(f'File accessed: {filename}')
 
-# --or--
-
+# Or programmatic registration
 broker.register_subscriber("system.io.file", print_filename)
 ```
- 
-## Priorities
 
-Subscriptions can add a priority integer that will dictate the subscriber
-execution order:
+### Wildcard Subscriptions
+
+Subscribe to multiple namespaces using `*`:
+
 ```python
-broker.subscribe('file.io.*', my_func, priority=10)
+# Listen to all events under 'file'
+@broker.subscribe("file.*")
+def on_any_file_event(**kwargs) -> None:  # Must accept **kwargs
+    print(f'File event: {kwargs}')
+
+broker.emit('file.saved', filename='data.json', size=2048)
+broker.emit('file.deleted', filename='temp.txt', size=512)
 ```
 
-Higher priorities are executed first.
+### Priorities
 
-## Arguments
+Control execution order with priority values (higher = earlier):
 
-Events can be emitted with any keyword arguments:
 ```python
-broker.emit('file.io.open_file', path=Path('D:/dir/file.txt'))
+@broker.subscribe('system.alert', priority=10)
+def critical_handler(message: str) -> None:
+    print('CRITICAL:', message)
+
+@broker.subscribe('system.alert', priority=1)
+def log_handler(message: str) -> None:
+    print('Logged:', message)
+
+broker.emit('system.alert', message='Disk full')
+# Output:
+# CRITICAL: Disk full
+# Logged: Disk full
+```
+
+### Unsubscribing
+
+```python
+broker.unregister_subscriber('file.saved', on_file_saved)
+```
+
+## Emitting Events
+
+### Synchronous Events
+
+```python
+# Emits to all synchronous subscribers only
+broker.emit('process.data', value=42, status='ready')
+```
+
+### Asynchronous Events
+
+```python
+import asyncio
+
+async def async_handler(data: str) -> None:
+    await asyncio.sleep(0.1)
+    print(f'Async: {data}')
+
+def sync_handler(data: str) -> None:
+    print(f'Sync: {data}')
+
+broker.register_subscriber('process.data', async_handler)
+broker.register_subscriber('process.data', sync_handler)
+
+# emit() calls sync handlers only
+broker.emit('process.data', data='test')  # Only sync_handler runs
+
+# emit_async() calls both sync and async handlers
+await broker.emit_async('process.data', data='test')  # Both run
 ```
 
 ## Signature Validation
 
-If a subscriber to a namespace with keyword arguments different from previous
-subscribers, or an event is emitted using different keywords than subscribers
-are expecting, an explicit exception is raised. First subscribers set the
-expectation and following subscribers + emitters are validated.
-
-## Exception Handling
-
-The broker provides configurable exception handling for errors that occur during
-subscriber callback execution. By default, exceptions are logged and stop
-delivery to remaining subscribers.
-
-### Exception Handler Types
+The broker validates that all subscribers and emitters use consistent argument signatures:
 
 ```python
-from broker import handlers
+@broker.subscribe('user.login')
+def first_subscriber(username: str, user_id: int) -> None:
+    pass
 
-# Default behavior - logs error and stops delivery
-broker.set_subscriber_exception_handler(
-    handlers.stop_and_log_subscriber_exception
-)
+# This will raise an exception - signature mismatch
+@broker.subscribe('user.login')
+def wrong_signature(username: str, email: str) -> None:  # ❌ Different args
+    pass
 
-# Log and Continue
-broker.set_subscriber_exception_handler(
-    handlers.log_and_continue_subscriber_exception
-)
-
-# Silent Handler - Ignores exceptions and continues delivery
-broker.set_subscriber_exception_handler(
-    handlers.silent_subscriber_exception
-)
-
-# Collecting Handler - Captures all exceptions for batch processing
-handlers.exceptions_caught.clear()
-broker.set_subscriber_exception_handler(
-    handlers.collect_subscriber_exception
-)
-
-broker.emit('event', data='test')
-
-# Review collected exceptions
-for error in handlers.exceptions_caught:
-    print(f"Error in {error['namespace']}: {error['exception']}")
-
-# Custom Handler - Create your own exception policy
-def custom_handler(callback: Callable, namespace: str, exception: Exception) -> bool:
-    callback_name = handlers.get_callable_name(callback)
-
-    # Log the error
-    print(f"Error in {namespace} from {callback_name}: {exception}")
-
-    # Return True to stop delivery and raise, False to ignore and continue
-    if isinstance(exception, ValueError):
-        return True  # Stop on ValueError
-    return False  # Continue on other exceptions
-
-
-broker.set_subscriber_exception_handler(custom_handler)
+# This will also raise an exception
+broker.emit('user.login', username='alice', email='[email protected]')  # ❌ Wrong args
 ```
 
-**Disable Handler** - Re-raise all exceptions:
-
-```python
-broker.set_subscriber_exception_handler(None)  # Exceptions propagate normally
-```
-
-Exception handlers work with both `emit()` and `emit_async()`, and apply to all
-subscriber types including sync callbacks, async callbacks, instance methods,
-and lambdas.
+The first subscriber sets the expected signature for that namespace.
 
 ## Transformers
 
-Transformers intercept and modify event data before it reaches subscribers. They
-execute in priority order and can modify arguments, add metadata, validate data,
-or block events entirely. Transformers are scoped to namespaces and not globally
-applied.
+Transformers intercept and modify event data before it reaches subscribers. They execute in priority order and are scoped to specific namespaces.
 
-### Registering Transformers
+### Basic Transformer
 
 ```python
 import datetime
@@ -139,107 +148,62 @@ def add_timestamp(namespace: str, kwargs: dict) -> dict:
     return kwargs
 
 broker.register_transformer('system.*', add_timestamp, priority=10)
-broker.emit('system.io.file', filename='data.txt')  # Gets timestamp automatically
+
+@broker.subscribe('system.startup')
+def on_startup(timestamp: str) -> None:
+    print(f'Started at {timestamp}')
+
+broker.emit('system.startup')  # timestamp added automatically
 ```
 
 ### Blocking Events
 
-Transformers can block event propagation by returning `None`:
+Return `None` to prevent event delivery:
 
 ```python
 def validate_user(namespace: str, kwargs: dict) -> dict | None:
     """Block events with invalid user_id."""
     if 'user_id' not in kwargs or kwargs['user_id'] < 0:
-        return None  # Block the event
+        return None  # Event blocked - subscribers never called
     return kwargs
 
 broker.register_transformer('user.*', validate_user)
-broker.emit('user.login', user_id=-1)  # Blocked - no subscribers called
+broker.emit('user.login', user_id=-1)  # Blocked silently
 ```
 
-### Priority Execution
+### Transformer Priority
 
 Higher priority transformers execute first:
 
 ```python
-def step1(namespace: str, kwargs: dict) -> dict:
-    kwargs['step'] = 1
+def normalize(namespace: str, kwargs: dict) -> dict:
+    kwargs['value'] = kwargs['value'].lower()
     return kwargs
 
-def step2(namespace: str, kwargs: dict) -> dict:
-    kwargs['step'] = 2
+def validate(namespace: str, kwargs: dict) -> dict | None:
+    if not kwargs['value'].isalnum():
+        return None
     return kwargs
 
-broker.register_transformer('pipeline', step1, priority=10)  # Runs first
-broker.register_transformer('pipeline', step2, priority=5)   # Runs second
-```
-
-### Transformer Exception Handling
-
-Transformers support exception handlers similar to subscriber handlers:
-
-```python
-from broker import handlers
-
-# Stop on transformer errors (logs and blocks event)
-broker.set_transformer_exception_handler(
-    handlers.stop_and_log_transformer_exception
-)
-
-# Log transformer errors and continue
-broker.set_transformer_exception_handler(
-    handlers.log_and_continue_transformer_exception
-)
-
-# Silent mode - ignore transformer errors and continue
-broker.set_transformer_exception_handler(
-    handlers.silent_transformer_exception
-)
-
-# Collect transformer errors for review
-handlers.transformer_exceptions_caught.clear()
-broker.set_transformer_exception_handler(
-    handlers.collecting_transformer_exception
-)
-
-# Custom handler
-def custom_handler(transformer, namespace, exception):
-    print(f"Transformer error: {exception}")
-    return False  # Continue with next transformer
-
-broker.set_transformer_exception_handler(custom_handler)
-
-# Disable handler (re-raise exceptions)
-broker.set_transformer_exception_handler(None)
+# Normalize before validating
+broker.register_transformer('input', normalize, priority=10)
+broker.register_transformer('input', validate, priority=5)
 ```
 
 ### Common Use Cases
 
-**Data enrichment:**
+**Data Enrichment**
 ```python
 def enrich_user_data(namespace: str, kwargs: dict) -> dict:
     if 'user_id' in kwargs:
         kwargs['user_name'] = get_user_name(kwargs['user_id'])
+        kwargs['permissions'] = get_permissions(kwargs['user_id'])
     return kwargs
+
+broker.register_transformer('user.*', enrich_user_data)
 ```
 
-**Validation:**
-```python
-def validate_required_fields(namespace: str, kwargs: dict) -> dict | None:
-    required = ['id', 'action']
-    if not all(field in kwargs for field in required):
-        return None  # Block invalid events
-    return kwargs
-```
-
-**Logging:**
-```python
-def log_events(namespace: str, kwargs: dict) -> dict:
-    print(f"[{namespace}] {kwargs}")
-    return kwargs  # Don't modify, just observe
-```
-
-**Normalization:**
+**Path Normalization**
 ```python
 from pathlib import Path
 
@@ -247,141 +211,246 @@ def normalize_paths(namespace: str, kwargs: dict) -> dict:
     if 'filepath' in kwargs:
         kwargs['filepath'] = str(Path(kwargs['filepath']).absolute())
     return kwargs
+
+broker.register_transformer('file.*', normalize_paths)
 ```
 
-## Broker Event Notification
-
-Internal notifications for events within the broker itself cna be enabled via
+**Event Logging**
 ```python
-broker.set_flag_states()
+def log_events(namespace: str, kwargs: dict) -> dict:
+    print(f"[{namespace}] {kwargs}")
+    return kwargs  # Pass through unchanged
+
+broker.register_transformer('*', log_events, priority=100)  # Log everything
 ```
 
-Actions within the broker itself can be subscribed to like so:
+**Validation and Filtering**
 ```python
-broker.set_flag_states(on_subscribe=True)
+def validate_required_fields(namespace: str, kwargs: dict) -> dict | None:
+    required = ['id', 'action', 'timestamp']
+    if not all(field in kwargs for field in required):
+        return None  # Block incomplete events
+    return kwargs
+```
+
+## Exception Handling
+
+### Subscriber Exception Handlers
+
+Configure how the broker handles errors in subscriber callbacks:
+
+```python
+from broker import handlers
+
+# Stop and Log (default) - logs error and stops delivery
+broker.set_subscriber_exception_handler(
+    handlers.stop_and_log_subscriber_exception
+)
+
+# Log and Continue - logs but continues to next subscriber
+broker.set_subscriber_exception_handler(
+    handlers.log_and_continue_subscriber_exception
+)
+
+# Silent - ignores all exceptions and continues
+broker.set_subscriber_exception_handler(
+    handlers.silent_subscriber_exception
+)
+
+# Collecting - captures exceptions for batch review
+handlers.exceptions_caught.clear()
+broker.set_subscriber_exception_handler(
+    handlers.collect_subscriber_exception
+)
+broker.emit('event', data='test')
+for error in handlers.exceptions_caught:
+    print(f"Error in {error['namespace']}: {error['exception']}")
+
+# Custom handler
+def custom_handler(callback: Callable, namespace: str, exception: Exception) -> bool:
+    """Return True to stop delivery, False to continue."""
+    if isinstance(exception, ValueError):
+        return True  # Stop on ValueError
+    return False  # Continue on other exceptions
+
+broker.set_subscriber_exception_handler(custom_handler)
+
+# Disable (re-raise all exceptions)
+broker.set_subscriber_exception_handler(None)
+```
+
+### Transformer Exception Handlers
+
+Similar handlers for transformer errors:
+
+```python
+from broker import handlers
+
+# Stop and log transformer errors (blocks event)
+broker.set_transformer_exception_handler(
+    handlers.stop_and_log_transformer_exception
+)
+
+# Log and continue with next transformer
+broker.set_transformer_exception_handler(
+    handlers.log_and_continue_transformer_exception
+)
+
+# Silent mode
+broker.set_transformer_exception_handler(
+    handlers.silent_transformer_exception
+)
+
+# Collecting mode
+handlers.transformer_exceptions_caught.clear()
+broker.set_transformer_exception_handler(
+    handlers.collecting_transformer_exception
+)
+
+# Custom handler
+def custom_transformer_handler(transformer, namespace, exception):
+    print(f"Transformer error: {exception}")
+    return False  # Continue with next transformer
+
+broker.set_transformer_exception_handler(custom_transformer_handler)
+
+# Disable (re-raise exceptions)
+broker.set_transformer_exception_handler(None)
+```
+
+## Broker Event Notifications
+
+Subscribe to internal broker events to monitor subscription changes, emissions, and namespace lifecycle:
+
+```python
+# Enable specific notifications
+broker.set_flag_states(on_subscribe=True, on_emit=True)
 
 @broker.subscribe(broker.BROKER_ON_SUBSCRIBER_ADDED)
 def on_subscriber_added(using: str) -> None:
-    print(f'New subscriber to namespace: {using}')
+    print(f'New subscriber to: {using}')
+
+@broker.subscribe(broker.BROKER_ON_EMIT)
+def on_emit(namespace: str, kwargs: dict) -> None:
+    print(f'Event emitted: {namespace}')
 ```
 
-Available notifications are:
-* BROKER_ON_SUBSCRIBER_ADDED
-* BROKER_ON_SUBSCRIBER_REMOVED
-* BROKER_ON_SUBSCRIBER_COLLECTED
-* 
-* BROKER_ON_TRANSFORMER_ADDED = BROKER_ON_TRANSFORMER_ADDED
-* BROKER_ON_TRANSFORMER_REMOVED = BROKER_ON_TRANSFORMER_REMOVED
-* BROKER_ON_TRANSFORMER_COLLECTED = BROKER_ON_TRANSFORMER_COLLECTED
-* 
-* BROKER_ON_EMIT
-* BROKER_ON_EMIT_ASYNC
-* BROKER_ON_EMIT_ALL
-* 
-* BROKER_ON_NAMESPACE_CREATED
-* BROKER_ON_NAMESPACE_DELETED
+### Available Notifications
 
+**Subscriber Events**
+- `BROKER_ON_SUBSCRIBER_ADDED` - New subscriber registered
+- `BROKER_ON_SUBSCRIBER_REMOVED` - Subscriber unregistered
+- `BROKER_ON_SUBSCRIBER_COLLECTED` - Subscriber garbage collected
 
-## Reimport Protection
+**Transformer Events**
+- `BROKER_ON_TRANSFORMER_ADDED` - New transformer registered
+- `BROKER_ON_TRANSFORMER_REMOVED` - Transformer unregistered
+- `BROKER_ON_TRANSFORMER_COLLECTED` - Transformer garbage collected
 
-If the broker is reimported an `ImportError` is raised.
+**Emission Events**
+- `BROKER_ON_EMIT` - Event emitted via `emit()`
+- `BROKER_ON_EMIT_ASYNC` - Event emitted via `emit_async()`
+- `BROKER_ON_EMIT_ALL` - Any emission (sync or async)
 
-Broker is a singleton with a global namespace/subscribers table. To prevent data
-loss the broker contains a reimport safeguard to keep the table from being
-cleared from reimporting. This plus the protective closure makes it **very**
-difficult to access outside the official interfaces.
+**Namespace Events**
+- `BROKER_ON_NAMESPACE_CREATED` - New namespace created
+- `BROKER_ON_NAMESPACE_DELETED` - Namespace removed
 
-# Example
+## Advanced Features
+
+### Flexible Callbacks
+
+Use `**kwargs` for flexible argument handling:
 
 ```python
-import broker
-
-
-# Basic usage - register and emit
-def on_file_saved(filename: str, size: int) -> None:
-    print(f'File saved: {filename} ({size} bytes)')
-
-
-broker.register_subscriber('file.save', on_file_saved)
-broker.emit('file.save', filename='document.txt', size=1024)
-
-
-# Wildcard subscriptions
-def on_any_file_event(filename: str, size: int) -> None:
-    print(f'File event: {filename}')
-
-
-broker.register_subscriber('file.*', on_any_file_event)
-broker.emit('file.save', filename='data.json', size=2048)
-broker.emit('file.delete', filename='temp.txt', size=512)
-
-
-# Priority-based execution (higher priority runs first)
-def high_priority_handler(message: str) -> None:
-    print('High priority:', message)
-
-
-def low_priority_handler(message: str) -> None:
-    print('Low priority:', message)
-
-
-broker.register_subscriber('system.alert', high_priority_handler, priority=10)
-broker.register_subscriber('system.alert', low_priority_handler, priority=1)
-broker.emit('system.alert', message='Warning!')
-
-# Async callbacks
-import asyncio
-
-
-async def async_handler(data: str) -> None:
-    await asyncio.sleep(0.1)
-    print(f'Async processed: {data}')
-
-
-def sync_handler(data: str) -> None:
-    print(f'Sync processed: {data}')
-
-
-broker.register_subscriber('process.data', async_handler)
-broker.register_subscriber('process.data', sync_handler)
-
-# Use emit() for sync only
-broker.emit('process.data', data='example')  # Only calls sync_handler
-
-# Use emit_async() for both sync and async
-await broker.emit_async('process.data', data='example')  # Calls both
-
-
-# Flexible callbacks with **kwargs
 def flexible_handler(**kwargs: object) -> None:
     print('Received:', kwargs)
 
-
 broker.register_subscriber('flexible.event', flexible_handler)
 broker.emit('flexible.event', foo='bar', count=42, active=True)
+```
 
+### Reimport Protection
 
-# Exception handling example
-def might_fail(value: int) -> None:
-    if value < 0:
-        raise ValueError('Negative values not allowed')
-    print(f'Processed: {value}')
+The broker is a singleton with reimport safeguards. Reimporting raises `ImportError` to prevent data loss:
 
+```python
+import broker
+import importlib
+importlib.reload(broker)  # Raises ImportError
+```
 
-def always_succeeds(value: int) -> None:
-    print('Cleanup complete')
+This protects the global namespace/subscriber table from being accidentally cleared.
 
+## Complete Example
 
-broker.register_subscriber('process', might_fail, priority=10)
-broker.register_subscriber('process', always_succeeds, priority=5)
-
-# With silent handler, both callbacks run even if first fails
+```python
+import asyncio
+import broker
 from broker import handlers
 
-broker.set_subscriber_exception_handler(handlers.silent_subscriber_exception)
+# Configure exception handling
+broker.set_subscriber_exception_handler(handlers.log_and_continue_subscriber_exception)
 
-broker.emit('process', value=-1)  # Both callbacks execute
+# Add data enrichment transformer
+def add_metadata(namespace: str, kwargs: dict) -> dict:
+    kwargs['source'] = 'app'
+    kwargs['version'] = '1.0'
+    return kwargs
 
-# Unregister subscribers
-broker.unregister_subscriber('file.save', on_file_saved)
+broker.register_transformer('*', add_metadata, priority=10)
+
+# Add validation transformer
+def validate_file_size(namespace: str, kwargs: dict) -> dict | None:
+    if 'size' in kwargs and kwargs['size'] > 10_000_000:
+        print(f"File too large: {kwargs.get('filename')}")
+        return None  # Block large files
+    return kwargs
+
+broker.register_transformer('file.*', validate_file_size, priority=5)
+
+# Register handlers with priorities
+@broker.subscribe('file.saved', priority=10)
+def backup_file(filename: str, size: int, **kwargs) -> None:
+    print(f'Backing up: {filename}')
+
+@broker.subscribe('file.saved', priority=5)
+def log_file(filename: str, size: int, **kwargs) -> None:
+    print(f'Logged: {filename} ({size} bytes, v{kwargs["version"]})')
+
+@broker.subscribe('file.*')
+async def async_notify(**kwargs) -> None:
+    await asyncio.sleep(0.1)
+    print(f'Notification sent for: {kwargs.get("filename")}')
+
+# Emit events
+broker.emit('file.saved', filename='small.txt', size=1024)
+# Output:
+# Backing up: small.txt
+# Logged: small.txt (1024 bytes, v1.0)
+
+await broker.emit_async('file.saved', filename='document.txt', size=2048)
+# Output:
+# Backing up: document.txt
+# Logged: document.txt (2048 bytes, v1.0)
+# Notification sent for: document.txt
+
+# This gets blocked by the validator
+broker.emit('file.saved', filename='huge.bin', size=50_000_000)
+# Output:
+# File too large: huge.bin
 ```
+
+## API Reference
+
+### Core Functions
+
+- `subscribe(namespace: str, priority: int = 0)` - Decorator for registering subscribers
+- `register_subscriber(namespace: str, callback: Callable, priority: int = 0)` - Register a subscriber programmatically
+- `unregister_subscriber(namespace: str, callback: Callable)` - Remove a subscriber
+- `register_transformer(namespace: str, transformer: Callable, priority: int = 0)` - Add event transformer
+- `emit(namespace: str, **kwargs)` - Emit event to synchronous subscribers
+- `emit_async(namespace: str, **kwargs)` - Emit event to all subscribers (async)
+- `set_subscriber_exception_handler(handler: Callable | None)` - Configure subscriber error handling
+- `set_transformer_exception_handler(handler: Callable | None)` - Configure transformer error handling
+- `set_flag_states(**flags)` - Enable broker event notifications
