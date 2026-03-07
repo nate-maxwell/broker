@@ -155,6 +155,7 @@ def on_startup(timestamp: str) -> None:
 
 broker.emit('system.startup')  # timestamp added automatically
 ```
+Transformers do not alter the tracked signature for matching.
 
 ### Blocking Events
 
@@ -262,11 +263,17 @@ handlers.exceptions_caught.clear()
 broker.set_subscriber_exception_handler(
     handlers.collect_subscriber_exception
 )
+
 broker.emit('event', data='test')
+
 for error in handlers.exceptions_caught:
     print(f"Error in {error['namespace']}: {error['exception']}")
+```
 
-# Custom handler
+Custom handlers can also be created.
+They must support a callback, namespace, and exception argument and return a bool.
+The return value dictates whether the system raises or passes the error.
+```python
 def custom_handler(callback: Callable, namespace: str, exception: Exception) -> bool:
     """Return True to stop delivery, False to continue."""
     if isinstance(exception, ValueError):
