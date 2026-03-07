@@ -270,6 +270,8 @@ for error in handlers.exceptions_caught:
     print(f"Error in {error['namespace']}: {error['exception']}")
 ```
 
+### Custom Handlers
+
 Custom handlers can also be created.
 They must support a callback, namespace, and exception argument and return a bool.
 The return value dictates whether the system raises or passes the error.
