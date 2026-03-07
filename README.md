@@ -283,8 +283,14 @@ def custom_handler(callback: Callable, namespace: str, exception: Exception) -> 
     return False  # Continue on other exceptions
 
 broker.set_subscriber_exception_handler(custom_handler)
+```
 
-# Disable (re-raise all exceptions)
+### Disabling Handlers
+
+The broker handler can be set to None to return to raise all encountered
+exceptions.
+```python
+# Disable (raise all exceptions)
 broker.set_subscriber_exception_handler(None)
 ```
 
