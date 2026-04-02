@@ -81,6 +81,56 @@ broker.emit('system.alert', message='Disk full')
 broker.unregister_subscriber('file.saved', on_file_saved)
 ```
 
+### One-Shot Subscribers
+
+A subscriber can be set to automatically unregister itself after firing once
+using the `once` parameter. This is useful for "wait for X, then stop" patterns
+without manual cleanup.
+```python
+# Decorator style
+@broker.subscribe('app.ready', once=True)
+def on_first_ready(status: str) -> None:
+    print(f'App came up: {status}')
+
+# Programmatic style
+broker.register_subscriber('app.ready', on_first_ready, once=True)
+```
+
+The subscriber fires on the first matching emit and is then removed. Subsequent
+emits to the same namespace will not trigger it:
+```python
+broker.emit('app.ready', status='ok')   # Prints: App came up: ok
+broker.emit('app.ready', status='ok')   # No output - already unregistered
+```
+
+One-shot subscribers can coexist with permanent subscribers on the same namespace.
+Only the one-shot subscriber is removed after firing; others continue as normal:
+```python
+@broker.subscribe('session.start', once=True)
+def initialize_cache(user_id: str) -> None:
+    print(f'Cache initialized for {user_id}')
+
+@broker.subscribe('session.start')
+def log_session(user_id: str) -> None:
+    print(f'Session started: {user_id}')
+
+broker.emit('session.start', user_id='alice')
+# Cache initialized for alice
+# Session started: alice
+
+broker.emit('session.start', user_id='bob')
+# Session started: bob
+```
+
+### Unregistering from All Namespaces
+
+To remove a callback from every namespace it is registered to at once, use `unregister_subscriber_all`:
+```python
+broker.unregister_subscriber_all(my_handler)
+```
+
+This is useful for object teardown when a handler may be subscribed to multiple namespaces and tracking them manually would be error-prone.
+
 ## Emitting Events
 
 ### Synchronous Events

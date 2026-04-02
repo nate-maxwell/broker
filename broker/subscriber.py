@@ -50,6 +50,9 @@ class Subscriber(object):
     namespace: str
     """The namespace the subscriber is listening to."""
 
+    is_one_shot: bool
+    """Whether to unregister self after firing."""
+
     @property
     def callback(self) -> Optional[SUBSCRIBER]:
         """Get the live callback, or None if collected."""
