@@ -222,7 +222,10 @@ async def emit_async(namespace: str, **kwargs: Any) -> None:
 
 # noinspection PyUnusedLocal
 def register_subscriber(
-    namespace: str, callback: subscriber.SUBSCRIBER, priority: int = 0
+    namespace: str,
+    callback: subscriber.SUBSCRIBER,
+    priority: int = 0,
+    once: bool = False,
 ) -> None:
     """
     Register a callback function to a namespace.
@@ -234,6 +237,8 @@ def register_subscriber(
             sync or async.
         priority (int): The priority used for callback execution order.
             Higher priorities are ran before lower priorities.
+        once: (bool): Whether the subscriber should unregister itself after
+            firing. Defaults to False.
     Raises:
         SignatureMismatchError: If callback signature doesn't match existing
             subscribers.
@@ -245,7 +250,7 @@ def register_subscriber(
 
 # noinspection PyUnusedLocal
 def subscribe(
-    namespace: str, priority: int = 0
+    namespace: str, priority: int = 0, once: bool = False
 ) -> Callable[[subscriber.SUBSCRIBER], subscriber.SUBSCRIBER]:
     """
     Decorator to register a function or static method as a subscriber.
@@ -256,6 +261,8 @@ def subscribe(
     Args:
         namespace (str): The event namespace to subscribe to.
         priority (int): The execution priority. Defaults to 0.
+        once: (bool): Whether the subscriber should unregister itself after
+            firing. Defaults to False.
     """
 
 

@@ -48,7 +48,7 @@ from broker import namespaces
 
 
 version_major = 1
-version_minor = 8
+version_minor = 9
 version_patch = 0
 __version__ = f"{version_major}.{version_minor}.{version_patch}"
 
@@ -117,11 +117,11 @@ def _make_subscribe_decorator(broker_module: "Broker") -> Callable:
     """
 
     def subscribe_(
-        namespace: str, priority: int = 0
+        namespace: str, priority: int = 0, once: bool = False
     ) -> Callable[[subscriber.SUBSCRIBER], subscriber.SUBSCRIBER]:
 
         def decorator(func: subscriber.SUBSCRIBER) -> subscriber.SUBSCRIBER:
-            broker_module.register_subscriber(namespace, func, priority)
+            broker_module.register_subscriber(namespace, func, priority, once)
             return func
 
         return decorator
@@ -310,7 +310,11 @@ class Broker(ModuleType):
             self.emit(namespace=BROKER_ON_SUBSCRIBER_COLLECTED, using=namespace)
 
     def register_subscriber(
-        self, namespace: str, callback: subscriber.SUBSCRIBER, priority: int = 0
+        self,
+        namespace: str,
+        callback: subscriber.SUBSCRIBER,
+        priority: int = 0,
+        once: bool = False,
     ) -> None:
         """
         Register a callback function to a namespace.
@@ -322,6 +326,8 @@ class Broker(ModuleType):
                 sync or async.
             priority (int): The priority used for callback execution order.
                 Higher priorities are ran before lower priorities.
+            once: (bool): Whether the subscriber should unregister itself after
+                firing. Defaults to False.
         Raises:
             SignatureMismatchError: If callback signature doesn't match existing
                 subscribers.
@@ -343,6 +349,7 @@ class Broker(ModuleType):
             priority=priority,
             is_async=is_async,
             namespace=namespace,
+            is_one_shot=once,
         )
 
         is_new_namespace = self._ensure_namespace_exists(namespace)
@@ -491,6 +498,8 @@ class Broker(ModuleType):
         if transformed_kwargs is None:
             return  # Event blocked
 
+        one_shots_to_remove: list[tuple[str, subscriber.SUBSCRIBER]] = []
+
         for reg_namespace, entry in _NAMESPACE_REGISTRY.items():
             if not self._matches(namespace, reg_namespace):
                 continue
@@ -515,6 +524,12 @@ class Broker(ModuleType):
                     stop = self._subscriptions_exception_handler(callback, namespace, e)
                     if stop:
                         break
+
+                if sub.is_one_shot:
+                    one_shots_to_remove.append((reg_namespace, callback))
+
+        for reg_namespace, callback in one_shots_to_remove:
+            self.unregister_subscriber(reg_namespace, callback)
 
         if not namespace.startswith(_NOTIFY_NAMESPACE_ROOT) and (
             self.notify_on_emit or self.notify_on_emit_all
@@ -550,6 +565,8 @@ class Broker(ModuleType):
         if transformed_kwargs is None:
             return  # Event blocked
 
+        one_shots_to_remove: list[tuple[str, subscriber.SUBSCRIBER]] = []
+
         for reg_namespace, entry in _NAMESPACE_REGISTRY.items():
             if not self._matches(namespace, reg_namespace):
                 continue
@@ -575,6 +592,12 @@ class Broker(ModuleType):
                     stop = self._subscriptions_exception_handler(callback, namespace, e)
                     if stop:
                         break
+
+                if sub.is_one_shot:
+                    one_shots_to_remove.append((reg_namespace, callback))
+
+        for reg_namespace, callback in one_shots_to_remove:
+            self.unregister_subscriber(reg_namespace, callback)
 
         if not namespace.startswith(_NOTIFY_NAMESPACE_ROOT) and (
             self.notify_on_emit_async or self.notify_on_emit_all
