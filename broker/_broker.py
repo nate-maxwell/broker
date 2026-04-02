@@ -49,7 +49,7 @@ from broker import namespaces
 
 version_major = 1
 version_minor = 7
-version_patch = 1
+version_patch = 2
 __version__ = f"{version_major}.{version_minor}.{version_patch}"
 
 _NAMESPACE_REGISTRY: dict[str, namespaces.NamespaceEntry] = {}
@@ -293,8 +293,8 @@ class Broker(ModuleType):
         """Called when a subscriber is garbage collected."""
         if namespace in _NAMESPACE_REGISTRY:
             entry = _NAMESPACE_REGISTRY[namespace]
-            entry["subscribers"] = [
-                sub for sub in entry["subscribers"] if sub.callback is not None
+            entry.subscribers = [
+                sub for sub in entry.subscribers if sub.callback is not None
             ]
 
             if self._cleanup_namespace_if_empty(namespace):
@@ -349,12 +349,12 @@ class Broker(ModuleType):
         entry = _NAMESPACE_REGISTRY[namespace]
 
         # Validate/set signature
-        if entry["signature"] is None:
-            entry["signature"] = callback_params
+        if entry.signature is None:
+            entry.signature = callback_params
         else:
-            existing_params = entry["signature"]
+            existing_params = entry.signature
             if existing_params is None or callback_params is None:
-                entry["signature"] = None
+                entry.signature = None
             elif existing_params != callback_params:
                 raise SignatureMismatchError(
                     f"Subscriber parameter mismatch for namespace '{namespace}'. "
@@ -362,7 +362,7 @@ class Broker(ModuleType):
                     f"but got: {sorted(callback_params)}"
                 )
 
-        entry["subscribers"].append(sub)
+        entry.subscribers.append(sub)
 
         if (
             is_new_namespace
@@ -395,8 +395,8 @@ class Broker(ModuleType):
             return
 
         entry = _NAMESPACE_REGISTRY[namespace]
-        entry["subscribers"] = [
-            sub for sub in entry["subscribers"] if sub.callback != callback
+        entry.subscribers = [
+            sub for sub in entry.subscribers if sub.callback != callback
         ]
 
         if (
@@ -424,7 +424,7 @@ class Broker(ModuleType):
             if not self._matches(namespace, reg_namespace):
                 continue
 
-            expected_params = entry["signature"]
+            expected_params = entry.signature
 
             if expected_params is None:
                 continue
@@ -485,7 +485,7 @@ class Broker(ModuleType):
                 continue
 
             sorted_subscribers = sorted(
-                entry["subscribers"], key=lambda s: s.priority, reverse=True
+                entry.subscribers, key=lambda s: s.priority, reverse=True
             )
             for sub in sorted_subscribers:
                 callback = sub.callback
@@ -544,7 +544,7 @@ class Broker(ModuleType):
                 continue
 
             sorted_subscribers = sorted(
-                entry["subscribers"], key=lambda s: s.priority, reverse=True
+                entry.subscribers, key=lambda s: s.priority, reverse=True
             )
             for sub in sorted_subscribers:
                 callback = sub.callback
@@ -576,8 +576,8 @@ class Broker(ModuleType):
         """Called when a transformer is garbage collected."""
         if namespace in _NAMESPACE_REGISTRY:
             entry = _NAMESPACE_REGISTRY[namespace]
-            entry["transformers"] = [
-                t for t in entry["transformers"] if t.callback is not None
+            entry.transformers = [
+                t for t in entry.transformers if t.callback is not None
             ]
 
             if self._cleanup_namespace_if_empty(namespace):
@@ -624,8 +624,8 @@ class Broker(ModuleType):
 
         is_new_namespace = self._ensure_namespace_exists(namespace)
         entry = _NAMESPACE_REGISTRY[namespace]
-        entry["transformers"].append(transformer_obj)
-        entry["transformers"].sort(key=lambda t: t.priority, reverse=True)
+        entry.transformers.append(transformer_obj)
+        entry.transformers.sort(key=lambda t: t.priority, reverse=True)
 
         if (
             is_new_namespace
@@ -654,9 +654,7 @@ class Broker(ModuleType):
             return
 
         entry = _NAMESPACE_REGISTRY[namespace]
-        entry["transformers"] = [
-            t for t in entry["transformers"] if t.callback != callback
-        ]
+        entry.transformers = [t for t in entry.transformers if t.callback != callback]
 
         if (
             not namespace.startswith(_NOTIFY_NAMESPACE_ROOT)
@@ -701,7 +699,7 @@ class Broker(ModuleType):
 
         for reg_namespace, entry in _NAMESPACE_REGISTRY.items():
             if self._matches(namespace, reg_namespace):
-                matching_transformers.extend(entry["transformers"])
+                matching_transformers.extend(entry.transformers)
 
         matching_transformers.sort(key=lambda t: t.priority, reverse=True)
         current_kwargs = kwargs.copy()
@@ -734,11 +732,11 @@ class Broker(ModuleType):
     def clear_transformers(self) -> None:
         """Clear all registered transformers."""
         for entry in _NAMESPACE_REGISTRY.values():
-            entry["transformers"].clear()
+            entry.transformers.clear()
         empty_ns = [
             ns
             for ns, entry in _NAMESPACE_REGISTRY.items()
-            if not entry["subscribers"] and not entry["transformers"]
+            if not entry.subscribers and not entry.transformers
         ]
         for ns in empty_ns:
             del _NAMESPACE_REGISTRY[ns]
@@ -749,7 +747,7 @@ class Broker(ModuleType):
     def get_all_transformer_namespaces() -> list[str]:
         """Get all namespaces that have transformers."""
         return sorted(
-            [ns for ns, entry in _NAMESPACE_REGISTRY.items() if entry["transformers"]]
+            [ns for ns, entry in _NAMESPACE_REGISTRY.items() if entry.transformers]
         )
 
     # -----Notifies + Helpers--------------------------------------------------
@@ -833,7 +831,7 @@ class Broker(ModuleType):
             return
 
         entry = _NAMESPACE_REGISTRY[namespace]
-        if not entry["subscribers"] and not entry["transformers"]:
+        if not entry.subscribers and not entry.transformers:
             del _NAMESPACE_REGISTRY[namespace]
             if (
                 not namespace.startswith(_NOTIFY_NAMESPACE_ROOT)
@@ -848,11 +846,7 @@ class Broker(ModuleType):
         Returns True if the namespace was added, False if it already existed.
         """
         if namespace not in _NAMESPACE_REGISTRY:
-            _NAMESPACE_REGISTRY[namespace] = {
-                "subscribers": [],
-                "transformers": [],
-                "signature": None,
-            }
+            _NAMESPACE_REGISTRY[namespace] = namespaces.NamespaceEntry([], [], None)
             return True
 
         return False
@@ -871,7 +865,11 @@ class Broker(ModuleType):
         Returns:
             int: Number of subscribers (including dead weak references).
         """
-        return len(_NAMESPACE_REGISTRY.get(namespace, {}).get("subscribers", []))
+        fetched = _NAMESPACE_REGISTRY.get(namespace, None)
+        if fetched is None:
+            return 0
+
+        return len(fetched.subscribers)
 
     @staticmethod
     def get_live_subscriber_count(namespace: str) -> int:
@@ -887,7 +885,7 @@ class Broker(ModuleType):
             return 0
         return sum(
             1
-            for sub in _NAMESPACE_REGISTRY[namespace]["subscribers"]
+            for sub in _NAMESPACE_REGISTRY[namespace].subscribers
             if sub.callback is not None
         )
 
@@ -906,7 +904,7 @@ class Broker(ModuleType):
         if namespace not in _NAMESPACE_REGISTRY:
             return False
 
-        for sub in _NAMESPACE_REGISTRY[namespace]["subscribers"]:
+        for sub in _NAMESPACE_REGISTRY[namespace].subscribers:
             if sub.callback == callback:
                 return True
 
@@ -932,7 +930,7 @@ class Broker(ModuleType):
         """
         subscriptions = []
         for namespace, entry in _NAMESPACE_REGISTRY.items():
-            for sub in entry["subscribers"]:
+            for sub in entry.subscribers:
                 if sub.callback == callback:
                     subscriptions.append(namespace)
                     break
@@ -950,7 +948,7 @@ class Broker(ModuleType):
             list[subscriber.Subscriber]: List of Subscriber objects. May include
                 dead references.
         """
-        return list(_NAMESPACE_REGISTRY.get(namespace, {}).get("subscribers", []))
+        return list(_NAMESPACE_REGISTRY.get(namespace, {}).subscribers)
 
     @staticmethod
     def get_live_subscribers(namespace: str) -> list[subscriber.Subscriber]:
@@ -968,7 +966,7 @@ class Broker(ModuleType):
 
         return [
             sub
-            for sub in _NAMESPACE_REGISTRY[namespace]["subscribers"]
+            for sub in _NAMESPACE_REGISTRY[namespace].subscribers
             if sub.callback is not None
         ]
 
@@ -984,7 +982,11 @@ class Broker(ModuleType):
         Returns:
             int: Number of transformers (including dead weak references).
         """
-        return len(_NAMESPACE_REGISTRY.get(namespace, {}).get("transformers", []))
+        fetched = _NAMESPACE_REGISTRY.get(namespace, None)
+        if fetched is None:
+            return 0
+
+        return len(fetched.transformers)
 
     @staticmethod
     def get_live_transformer_count(namespace: str) -> int:
@@ -1001,7 +1003,7 @@ class Broker(ModuleType):
 
         return sum(
             1
-            for trans in _NAMESPACE_REGISTRY[namespace]["transformers"]
+            for trans in _NAMESPACE_REGISTRY[namespace].transformers
             if trans.callback is not None
         )
 
@@ -1020,7 +1022,7 @@ class Broker(ModuleType):
         if namespace not in _NAMESPACE_REGISTRY:
             return False
 
-        for trans in _NAMESPACE_REGISTRY[namespace]["transformers"]:
+        for trans in _NAMESPACE_REGISTRY[namespace].transformers:
             if trans.callback == callback:
                 return True
 
@@ -1048,7 +1050,7 @@ class Broker(ModuleType):
         """
         transformations = []
         for namespace, entry in _NAMESPACE_REGISTRY.items():
-            for trans in entry["transformers"]:
+            for trans in entry.transformers:
                 if trans.callback == callback:
                     transformations.append(namespace)
                     break
@@ -1066,7 +1068,7 @@ class Broker(ModuleType):
             list[transformer.Transformer]: List of Transformer objects. May include
                 dead references.
         """
-        return list(_NAMESPACE_REGISTRY.get(namespace, {}).get("transformers", []))
+        return list(_NAMESPACE_REGISTRY.get(namespace, {}).transformers)
 
     @staticmethod
     def get_live_transformers(namespace: str) -> list[transformer.Transformer]:
@@ -1084,7 +1086,7 @@ class Broker(ModuleType):
 
         return [
             trans
-            for trans in _NAMESPACE_REGISTRY[namespace]["transformers"]
+            for trans in _NAMESPACE_REGISTRY[namespace].transformers
             if trans.callback is not None
         ]
 
@@ -1135,10 +1137,10 @@ class Broker(ModuleType):
         if namespace not in _NAMESPACE_REGISTRY:
             return None
 
-        subscribers = _NAMESPACE_REGISTRY[namespace]["subscribers"]
+        subscribers = _NAMESPACE_REGISTRY[namespace].subscribers
         live_subs = [sub for sub in subscribers if sub.callback is not None]
 
-        transformers = _NAMESPACE_REGISTRY[namespace]["transformers"]
+        transformers = _NAMESPACE_REGISTRY[namespace].transformers
         live_trans = [trans for trans in transformers if trans.callback is not None]
 
         return {
@@ -1147,7 +1149,7 @@ class Broker(ModuleType):
             "live_subscriber_count": len(live_subs),
             "transformer_count": len(transformers),
             "live_transformer_count": len(live_trans),
-            "expected_params": _NAMESPACE_REGISTRY[namespace]["signature"],
+            "expected_params": _NAMESPACE_REGISTRY[namespace].signature,
             "has_async": any(sub.is_async for sub in live_subs),
             "has_sync": any(not sub.is_async for sub in live_subs),
             "priorities": sorted(set(sub.priority for sub in live_subs), reverse=True),
@@ -1193,18 +1195,18 @@ class Broker(ModuleType):
             }
         """
         total_subscribers = sum(
-            len(entry["subscribers"]) for entry in _NAMESPACE_REGISTRY.values()
+            len(entry.subscribers) for entry in _NAMESPACE_REGISTRY.values()
         )
         total_live_subscribers = sum(
-            sum(1 for sub in entry["subscribers"] if sub.callback is not None)
+            sum(1 for sub in entry.subscribers if sub.callback is not None)
             for entry in _NAMESPACE_REGISTRY.values()
         )
 
         total_transformers = sum(
-            len(entry["transformers"]) for entry in _NAMESPACE_REGISTRY.values()
+            len(entry.transformers) for entry in _NAMESPACE_REGISTRY.values()
         )
         total_live_transformers = sum(
-            sum(1 for trans in entry["transformers"] if trans.callback is not None)
+            sum(1 for trans in entry.transformers if trans.callback is not None)
             for entry in _NAMESPACE_REGISTRY.values()
         )
 
@@ -1212,8 +1214,7 @@ class Broker(ModuleType):
             1
             for entry in _NAMESPACE_REGISTRY.values()
             if any(
-                sub.is_async and sub.callback is not None
-                for sub in entry["subscribers"]
+                sub.is_async and sub.callback is not None for sub in entry.subscribers
             )
         )
 
@@ -1222,14 +1223,14 @@ class Broker(ModuleType):
             for entry in _NAMESPACE_REGISTRY.values()
             if any(
                 not sub.is_async and sub.callback is not None
-                for sub in entry["subscribers"]
+                for sub in entry.subscribers
             )
         )
 
         namespaces_with_transformers = sum(
             1
             for entry in _NAMESPACE_REGISTRY.values()
-            if any(trans.callback is not None for trans in entry["transformers"])
+            if any(trans.callback is not None for trans in entry.transformers)
         )
 
         namespace_count = len(_NAMESPACE_REGISTRY)
@@ -1287,7 +1288,7 @@ class Broker(ModuleType):
 
             # Process subscribers
             subscribers_info = []
-            for sub in entry["subscribers"]:
+            for sub in entry.subscribers:
                 info = self._get_callback_info(sub.callback)
 
                 priority_str = (
@@ -1298,7 +1299,7 @@ class Broker(ModuleType):
 
             # Process transformers
             transformers_info = []
-            for trans in entry["transformers"]:
+            for trans in entry.transformers:
                 info = self._get_callback_info(trans.callback)
 
                 priority_str = (

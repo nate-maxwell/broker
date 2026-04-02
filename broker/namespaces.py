@@ -1,23 +1,25 @@
 """
 Namespace registry data structures for the event broker.
 
-Defines the NamespaceEntry TypedDict that represents a unified namespace in the
+Defines the NamespaceEntry dataclass that represents a unified namespace in the
 broker's internal registry. Each namespace entry tracks both subscribers and
 transformers registered to that namespace, along with the expected parameter
 signature for validation.
 
 A namespace exists in the registry when it has at least one subscriber OR
-transformer registered.
+transformer registered, except very briefly when registering a transformer or
+subscriber to a newly created namespace.
 """
 
 from typing import Optional
-from typing import TypedDict
+from dataclasses import dataclass
 
 from broker import subscriber
 from broker import transformer
 
 
-class NamespaceEntry(TypedDict):
+@dataclass
+class NamespaceEntry(object):
     """Entry for a namespace in the unified registry."""
 
     subscribers: list[subscriber.Subscriber]
