@@ -275,6 +275,16 @@ def unregister_subscriber(namespace: str, callback: subscriber.SUBSCRIBER) -> No
 
 
 # noinspection PyUnusedLocal
+def unregister_subscriber_all(callback: subscriber.SUBSCRIBER) -> None:
+    """
+    Removes a subscriber from all namespaces it is currently present in.
+
+    Args:
+        callback (Callable): The callable to unsubscribe.
+    """
+
+
+# noinspection PyUnusedLocal
 def set_subscriber_exception_handler(
     handler: Optional[handlers.SUBSCRIPTION_EXCEPTION_HANDLER],
 ) -> None:
