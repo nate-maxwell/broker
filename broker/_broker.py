@@ -48,8 +48,8 @@ from broker import namespaces
 
 
 version_major = 1
-version_minor = 7
-version_patch = 2
+version_minor = 8
+version_patch = 0
 __version__ = f"{version_major}.{version_minor}.{version_patch}"
 
 _NAMESPACE_REGISTRY: dict[str, namespaces.NamespaceEntry] = {}
@@ -406,6 +406,17 @@ class Broker(ModuleType):
             self.emit(namespace=BROKER_ON_SUBSCRIBER_REMOVED, using=namespace)
 
         self._cleanup_namespace_if_empty(namespace)
+
+    def unregister_subscriber_all(self, callback: subscriber.SUBSCRIBER) -> None:
+        """
+        Removes a subscriber from all namespaces it is currently present in.
+
+        Args:
+            callback (Callable): The callable to unsubscribe.
+        """
+        subscriber_namespaces = self.get_subscriptions(callback)
+        for namespace in subscriber_namespaces:
+            self.unregister_subscriber(namespace, callback)
 
     def _validate_emit_args(self, namespace: str, kwargs: dict[str, Any]) -> None:
         """
