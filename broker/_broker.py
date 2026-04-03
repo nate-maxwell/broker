@@ -48,7 +48,7 @@ from broker import namespaces
 
 
 version_major = 1
-version_minor = 9
+version_minor = 10
 version_patch = 0
 __version__ = f"{version_major}.{version_minor}.{version_patch}"
 
@@ -57,6 +57,12 @@ _NAMESPACE_REGISTRY: dict[str, namespaces.NamespaceEntry] = {}
 Global namespace registry.
 Each namespace tracks its subscribers, transformers, and expected signature.
 A namespace exists if it has at least one subscriber OR transformer.
+"""
+
+_STAGED_REGISTRY: dict[str, list[dict]] = {}
+"""
+A separate namespace table to temporarily hold emitted values until the user
+calls broker.emit_staged(). 
 """
 
 # -----Notifies----------------------------------------------------------------
@@ -87,7 +93,7 @@ class EmitArgumentError(Exception):
     """Raised when emit arguments don't match subscriber signatures."""
 
 
-# -----------------------------------------------------------------------------
+# -----Decorator Factories-----------------------------------------------------
 
 
 def _make_weak_ref(
@@ -173,8 +179,8 @@ class Broker(ModuleType):
     # ---Constants---
     __version__ = __version__
     _BROKER_IMPORT_GUARD = _BROKER_IMPORT_GUARD
-    # Explicitly refuse to make closure for _NAMESPACE_REGISTRY so it stays
-    # protected!
+    # Explicitly refuse to make closure for _NAMESPACE_REGISTRY or _STAGED_REGISTRY
+    # so they stay protected!
 
     # ---Exceptions---
     SignatureMismatchError = SignatureMismatchError
@@ -262,6 +268,10 @@ class Broker(ModuleType):
     @staticmethod
     def clear() -> None:
         _NAMESPACE_REGISTRY.clear()
+
+    @staticmethod
+    def clear_staged() -> None:
+        _STAGED_REGISTRY.clear()
 
     # -----Subscriber Management-----------------------------------------------
 
@@ -471,6 +481,17 @@ class Broker(ModuleType):
 
     # -----Emitter Handling----------------------------------------------------
 
+    def _get_sorted_subscribers(
+        self, namespace: str
+    ) -> list[tuple[str, subscriber.Subscriber]]:
+        """Get all live subscribers matching namespace, sorted by priority descending."""
+        result = []
+        for reg_namespace, entry in _NAMESPACE_REGISTRY.items():
+            if self._matches(namespace, reg_namespace):
+                result.extend((reg_namespace, sub) for sub in entry.subscribers)
+        result.sort(key=lambda x: x[1].priority, reverse=True)
+        return result
+
     def emit(self, namespace: str, **kwargs: Any) -> None:
         """
         Emit an event to all matching synchronous subscribers.
@@ -496,39 +517,27 @@ class Broker(ModuleType):
 
         transformed_kwargs = self.apply_transformers(namespace, kwargs)
         if transformed_kwargs is None:
-            return  # Event blocked
+            return
 
-        one_shots_to_remove: list[tuple[str, subscriber.SUBSCRIBER]] = []
+        one_shots: list[tuple[str, subscriber.SUBSCRIBER]] = []
 
-        for reg_namespace, entry in _NAMESPACE_REGISTRY.items():
-            if not self._matches(namespace, reg_namespace):
+        for reg_namespace, sub in self._get_sorted_subscribers(namespace):
+            callback = sub.callback
+            if callback is None or sub.is_async:
                 continue
 
-            sorted_subscribers = sorted(
-                entry.subscribers, key=lambda s: s.priority, reverse=True
-            )
-            for sub in sorted_subscribers:
-                callback = sub.callback
-                if callback is None:
-                    continue
+            try:
+                callback(**transformed_kwargs)
+            except Exception as e:
+                if self._subscriptions_exception_handler is None:
+                    raise
+                if self._subscriptions_exception_handler(callback, namespace, e):
+                    break
 
-                if sub.is_async:
-                    continue
+            if sub.is_one_shot:
+                one_shots.append((reg_namespace, callback))
 
-                try:
-                    callback(**transformed_kwargs)
-                except Exception as e:
-                    if self._subscriptions_exception_handler is None:
-                        raise
-
-                    stop = self._subscriptions_exception_handler(callback, namespace, e)
-                    if stop:
-                        break
-
-                if sub.is_one_shot:
-                    one_shots_to_remove.append((reg_namespace, callback))
-
-        for reg_namespace, callback in one_shots_to_remove:
+        for reg_namespace, callback in one_shots:
             self.unregister_subscriber(reg_namespace, callback)
 
         if not namespace.startswith(_NOTIFY_NAMESPACE_ROOT) and (
@@ -565,44 +574,90 @@ class Broker(ModuleType):
         if transformed_kwargs is None:
             return  # Event blocked
 
-        one_shots_to_remove: list[tuple[str, subscriber.SUBSCRIBER]] = []
+        one_shots: list[tuple[str, subscriber.SUBSCRIBER]] = []
 
-        for reg_namespace, entry in _NAMESPACE_REGISTRY.items():
-            if not self._matches(namespace, reg_namespace):
+        for reg_namespace, sub in self._get_sorted_subscribers(namespace):
+            callback = sub.callback
+
+            if callback is None:
                 continue
 
-            sorted_subscribers = sorted(
-                entry.subscribers, key=lambda s: s.priority, reverse=True
-            )
-            for sub in sorted_subscribers:
-                callback = sub.callback
+            try:
+                if sub.is_async:
+                    await callback(**transformed_kwargs)
+                else:
+                    callback(**transformed_kwargs)
+            except Exception as e:
+                if self._subscriptions_exception_handler is None:
+                    raise
 
-                if callback is None:
-                    continue
+                if self._subscriptions_exception_handler(callback, namespace, e):
+                    break
 
-                try:
-                    if sub.is_async:
-                        await callback(**transformed_kwargs)
-                    else:
-                        callback(**transformed_kwargs)
-                except Exception as e:
-                    if self._subscriptions_exception_handler is None:
-                        raise
+            if sub.is_one_shot:
+                one_shots.append((reg_namespace, callback))
 
-                    stop = self._subscriptions_exception_handler(callback, namespace, e)
-                    if stop:
-                        break
-
-                if sub.is_one_shot:
-                    one_shots_to_remove.append((reg_namespace, callback))
-
-        for reg_namespace, callback in one_shots_to_remove:
+        for reg_namespace, callback in one_shots:
             self.unregister_subscriber(reg_namespace, callback)
 
         if not namespace.startswith(_NOTIFY_NAMESPACE_ROOT) and (
             self.notify_on_emit_async or self.notify_on_emit_all
         ):
             self.emit(namespace=BROKER_ON_EMIT_ASYNC, using=namespace)
+
+    # -----Staged Handling-----------------------------------------------------
+
+    @staticmethod
+    def stage(namespace: str, **kwargs: Any) -> None:
+        """
+        Stage an entry for emitting later.
+
+        Entries will only be emitted upon calling broker.emit_staged()or
+        broker.emit_staged_async().
+
+        Signature validation will only occur when emitted, not on staging.
+
+        Args:
+            namespace (str): The namespace to pass the event to.
+            **kwargs: The arguments to pass through the namespace.
+        """
+        entries = _STAGED_REGISTRY.get(namespace, [])
+        entries.append(kwargs)
+        _STAGED_REGISTRY[namespace] = entries
+
+    def emit_staged(self, flush: bool = True) -> None:
+        """
+        Emits staged events through broker.emit()
+
+        Args:
+            flush (bool): Whether to empty the current staging registry after
+                emitting. Defaults to True.
+        """
+        namespaces_ = list(_STAGED_REGISTRY.keys())
+        staged = {ns: list(_STAGED_REGISTRY[ns]) for ns in namespaces_}
+
+        if flush:
+            _STAGED_REGISTRY.clear()
+
+        for namespace, events in staged.items():
+            for kwargs in events:
+                self.emit(namespace, **kwargs)
+
+    async def emit_staged_async(self, flush: bool = True) -> None:
+        """
+        Emits staged events through broker.emit_async()
+
+        Args:
+            flush (bool): Whether to empty the current staging registry after
+                emitting. Defaults to True.
+        """
+        namespaces_ = list(_STAGED_REGISTRY.keys())
+        for namespace in namespaces_:
+            for kwargs in _STAGED_REGISTRY[namespace]:
+                await self.emit_async(namespace, **kwargs)
+
+        if flush:
+            _STAGED_REGISTRY.clear()
 
     # -----Transformers--------------------------------------------------------
 
@@ -1123,6 +1178,28 @@ class Broker(ModuleType):
             for trans in _NAMESPACE_REGISTRY[namespace].transformers
             if trans.callback is not None
         ]
+
+    # -----Staging Introspection Methods---------------------------------------
+
+    @staticmethod
+    def get_staged_namespaces() -> list[str]:
+        """Get all namespaces with staged events."""
+        return sorted(_STAGED_REGISTRY.keys())
+
+    @staticmethod
+    def get_staged_count(namespace: Optional[str] = None) -> int:
+        """
+        Get the number of staged events.
+
+        Args:
+            namespace (str): If provided, returns the count for that namespace
+                only. If None, returns the total count across all namespaces.
+        Returns:
+            int: Number of staged events.
+        """
+        if namespace is not None:
+            return len(_STAGED_REGISTRY.get(namespace, []))
+        return sum(len(events) for events in _STAGED_REGISTRY.values())
 
     # -----General Introspection Methods-----------------------------
 

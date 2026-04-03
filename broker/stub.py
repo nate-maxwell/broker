@@ -22,7 +22,33 @@ from broker import subscriber
 from broker import transformer
 
 
-# -----General Stubs-----------------------------------------------------------
+# -----Variables---------------------------------------------------------------
+
+BROKER_ON_SUBSCRIBER_ADDED: str
+BROKER_ON_SUBSCRIBER_REMOVED: str
+BROKER_ON_SUBSCRIBER_COLLECTED: str
+
+BROKER_ON_TRANSFORMER_ADDED: str
+BROKER_ON_TRANSFORMER_REMOVED: str
+BROKER_ON_TRANSFORMER_COLLECTED: str
+
+BROKER_ON_EMIT: str
+BROKER_ON_EMIT_ASYNC: str
+BROKER_ON_EMIT_ALL: str
+
+BROKER_ON_NAMESPACE_CREATED: str
+BROKER_ON_NAMESPACE_DELETED: str
+
+
+class SignatureMismatchError(Exception):
+    """Raised when callback signatures don't match for a namespace."""
+
+
+class EmitArgumentError(Exception):
+    """Raised when emit arguments don't match subscriber signatures."""
+
+
+# -----General Functions-------------------------------------------------------
 
 
 def clear() -> None:
@@ -214,6 +240,45 @@ async def emit_async(namespace: str, **kwargs: Any) -> None:
         executed normally, async callbacks are awaited.
         -Emits a notify event after args have been sent to subscribers.
         Notify emits the used namespace.
+    """
+
+
+def clear_staged() -> None:
+    """Clears the staging table."""
+
+
+def stage(namespace: str, **kwargs: Any) -> None:
+    """
+    Stage an entry for emitting later.
+
+    Entries will only be emitted upon calling broker.emit_staged()or
+    broker.emit_staged_async().
+
+    Signature validation will only occur when emitted, not on staging.
+
+    Args:
+        namespace (str): The namespace to pass the event to.
+        **kwargs: The arguments to pass through the namespace.
+    """
+
+
+def emit_staged(flush: bool = True) -> None:
+    """
+    Emits staged events through broker.emit()
+
+    Args:
+        flush (bool): Whether to empty the current staging registry after
+            emitting. Defaults to True.
+    """
+
+
+async def emit_staged_async(flush: bool = True) -> None:
+    """
+    Emits staged events through broker.emit_async()
+
+    Args:
+        flush (bool): Whether to empty the current staging registry after
+            emitting. Defaults to True.
     """
 
 
@@ -567,4 +632,24 @@ def get_live_transformers(namespace: str) -> list[transformer.Transformer]:
     Returns:
         list[transformer.Transformer]: List of Transformer objects with live
             callbacks only.
+    """
+
+
+# -----Staging Stubs-----------------------------------------------------------
+
+
+def get_staged_namespaces() -> list[str]:
+    """Get all namespaces with staged events."""
+
+
+# noinspection PyUnusedLocal
+def get_staged_count(namespace: Optional[str] = None) -> int:
+    """
+    Get the number of staged events.
+
+    Args:
+        namespace (str): If provided, returns the count for that namespace
+            only. If None, returns the total count across all namespaces.
+    Returns:
+        int: Number of staged events.
     """
