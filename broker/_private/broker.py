@@ -30,10 +30,10 @@ from broker.paused import PausedContext
 from broker._private.introspection import BrokerIntrospectionMixin
 
 
-# -----Global Vars-------------------------------------------------------------
+# -----Version-----------------------------------------------------------------
 version_major = 1
 version_minor = 11
-version_patch = 3
+version_patch = 4
 __version__ = f"{version_major}.{version_minor}.{version_patch}"
 
 # -----Notifies----------------------------------------------------------------

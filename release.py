@@ -6,7 +6,7 @@ from pathlib import Path
 
 
 TOML_PATH = Path(Path(__file__).parent, "pyproject.toml")
-BROKER_PATH = Path(Path(__file__).parent, "broker/broker.py")
+BROKER_PATH = Path(Path(__file__).parent, "broker/_private/broker.py")
 
 
 def parse_version(version_str: str) -> tuple[int, int, int]:
