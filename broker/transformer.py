@@ -9,11 +9,14 @@ before it reaches subscribers. Transformers execute in priority order.
 
 import weakref
 from dataclasses import dataclass
-from types import ModuleType
 from typing import Any
 from typing import Callable
 from typing import Optional
+from typing import TYPE_CHECKING
 from typing import Union
+
+if TYPE_CHECKING:
+    from broker._broker import Broker
 
 
 TRANSFORMER = Callable[[str, dict[str, Any]], Optional[dict[str, Any]]]
@@ -58,7 +61,7 @@ class Transformer(object):
         return self.weak_callback()
 
 
-def _make_transformer_decorator(broker_module: ModuleType) -> Callable:
+def _make_transformer_decorator(broker: "Broker") -> Callable:
     """
     Create a transform decorator with access to the broker module.
 
@@ -72,7 +75,7 @@ def _make_transformer_decorator(broker_module: ModuleType) -> Callable:
     ) -> Callable[[TRANSFORMER], TRANSFORMER]:
 
         def decorator(func: TRANSFORMER) -> TRANSFORMER:
-            broker_module.register_transformer(namespace, func, priority)
+            broker.register_transformer(namespace, func, priority)
             return func
 
         return decorator

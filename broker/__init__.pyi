@@ -17,11 +17,12 @@ from typing import Callable
 from typing import Optional
 from typing import Union
 
-from broker import handlers
-from broker import subscriber
-from broker import transformer
-from broker.paused import PausedContext
-
+from .subscriber import SUBSCRIBER
+from .subscriber import Subscriber
+from .transformer import TRANSFORMER, Transformer
+from .handlers import SUBSCRIPTION_EXCEPTION_HANDLER
+from .handlers import TRANSFORMER_EXCEPTION_HANDLER
+from .paused import PausedContext
 
 # -----Variables---------------------------------------------------------------
 
@@ -40,23 +41,17 @@ BROKER_ON_EMIT_ALL: str
 BROKER_ON_NAMESPACE_CREATED: str
 BROKER_ON_NAMESPACE_DELETED: str
 
-
 class SignatureMismatchError(Exception):
     """Raised when callback signatures don't match for a namespace."""
-
 
 class EmitArgumentError(Exception):
     """Raised when emit arguments don't match subscriber signatures."""
 
-
 # -----General Functions-------------------------------------------------------
-
 
 def clear() -> None:
     """Clears the namespace and subscriber table."""
 
-
-# noinspection PyUnusedLocal
 def set_flag_states(
     on_subscribe: bool = False,
     on_unsubscribe: bool = False,
@@ -91,32 +86,21 @@ def set_flag_states(
         on_del_namespace:	       if True, get notified whenever a namespace is "deleted";
     """
 
-
 def to_dict() -> dict:
     """Convert the broker structure to a dictionary."""
 
-
-# noinspection PyUnusedLocal
 def to_string() -> str:
     """Returns a string representation of the broker."""
 
-
-# noinspection PyUnusedLocal
 def export(filepath: Union[str, os.PathLike]) -> None:
     """Export broker structure to filepath."""
-
 
 def get_namespaces() -> list[str]:
     """Get all registered namespaces."""
 
-
-# noinspection PyUnusedLocal
 def namespace_exists(namespace: str) -> bool:
     """Check if a namespace exists..."""
 
-
-# noinspection PyUnresolvedReferences
-# noinspection PyUnusedLocal
 def get_matching_namespaces(pattern: str) -> list[str]:
     """
     Get all namespaces that match a pattern (including wildcards).
@@ -130,9 +114,6 @@ def get_matching_namespaces(pattern: str) -> list[str]:
         ['system.io.file', 'system.io.network']
     """
 
-
-# noinspection PyUnresolvedReferences
-# noinspection PyUnusedLocal
 def get_namespace_info(namespace: str) -> Optional[dict[str, object]]:
     """
     Get detailed information about a namespace.
@@ -154,8 +135,6 @@ def get_namespace_info(namespace: str) -> Optional[dict[str, object]]:
         }
     """
 
-
-# noinspection PyUnresolvedReferences
 def get_all_namespace_info() -> dict[str, dict[str, object]]:
     """
     Get detailed information for all namespaces.
@@ -164,8 +143,6 @@ def get_all_namespace_info() -> dict[str, dict[str, object]]:
         dict[str, dict[str, object]]: Dictionary mapping namespace to info dict.
     """
 
-
-# noinspection PyUnresolvedReferences
 def get_statistics() -> dict[str, object]:
     """
     Get overall broker statistics.
@@ -190,11 +167,8 @@ def get_statistics() -> dict[str, object]:
         }
     """
 
-
 # -----Emitter Stubs-----------------------------------------------------------
 
-
-# noinspection PyUnusedLocal
 def emit(namespace: str, **kwargs: Any) -> None:
     """
     Emit an event to all matching synchronous subscribers.
@@ -217,8 +191,6 @@ def emit(namespace: str, **kwargs: Any) -> None:
         Notify emits the used namespace.
     """
 
-
-# noinspection PyUnusedLocal
 async def emit_async(namespace: str, **kwargs: Any) -> None:
     """
     Asynchronously emit an event to all matching subscribers.
@@ -243,10 +215,8 @@ async def emit_async(namespace: str, **kwargs: Any) -> None:
         Notify emits the used namespace.
     """
 
-
 def clear_staged() -> None:
     """Clears the staging table."""
-
 
 def stage(namespace: str, **kwargs: Any) -> None:
     """
@@ -262,7 +232,6 @@ def stage(namespace: str, **kwargs: Any) -> None:
         **kwargs: The arguments to pass through the namespace.
     """
 
-
 def emit_staged(flush: bool = True) -> None:
     """
     Emits staged events through broker.emit()
@@ -271,7 +240,6 @@ def emit_staged(flush: bool = True) -> None:
         flush (bool): Whether to empty the current staging registry after
             emitting. Defaults to True.
     """
-
 
 async def emit_staged_async(flush: bool = True) -> None:
     """
@@ -282,11 +250,8 @@ async def emit_staged_async(flush: bool = True) -> None:
             emitting. Defaults to True.
     """
 
-
 # -----Subscriber Stubs--------------------------------------------------------
 
-
-# noinspection PyUnusedLocal
 def register_subscriber(
     namespace: str,
     callback: subscriber.SUBSCRIBER,
@@ -313,8 +278,6 @@ def register_subscriber(
         subscriber is registered. Notify emits the used namespace.
     """
 
-
-# noinspection PyUnusedLocal
 def subscribe(
     namespace: str, priority: int = 0, once: bool = False
 ) -> Callable[[subscriber.SUBSCRIBER], subscriber.SUBSCRIBER]:
@@ -331,8 +294,6 @@ def subscribe(
             firing. Defaults to False.
     """
 
-
-# noinspection PyUnusedLocal
 def unregister_subscriber(namespace: str, callback: subscriber.SUBSCRIBER) -> None:
     """
     Remove a callback from a namespace.
@@ -346,8 +307,6 @@ def unregister_subscriber(namespace: str, callback: subscriber.SUBSCRIBER) -> No
         namespace.
     """
 
-
-# noinspection PyUnusedLocal
 def unregister_subscriber_all(callback: subscriber.SUBSCRIBER) -> None:
     """
     Removes a subscriber from all namespaces it is currently present in.
@@ -356,8 +315,6 @@ def unregister_subscriber_all(callback: subscriber.SUBSCRIBER) -> None:
         callback (Callable): The callable to unsubscribe.
     """
 
-
-# noinspection PyUnusedLocal
 def set_subscriber_exception_handler(
     handler: Optional[handlers.SUBSCRIPTION_EXCEPTION_HANDLER],
 ) -> None:
@@ -372,8 +329,6 @@ def set_subscriber_exception_handler(
             Pass None to restore default behavior (re-raise exceptions).
     """
 
-
-# noinspection PyUnusedLocal
 def get_subscriber_count(namespace: str) -> int:
     """
     Get the number of subscribers for a namespace.
@@ -384,8 +339,6 @@ def get_subscriber_count(namespace: str) -> int:
         int: Number of subscribers (including dead weak references).
     """
 
-
-# noinspection PyUnusedLocal
 def get_live_subscriber_count(namespace: str) -> int:
     """
     Get the number of live (non-garbage-collected) subscribers.
@@ -396,8 +349,6 @@ def get_live_subscriber_count(namespace: str) -> int:
         Number of subscribers with live callbacks.
     """
 
-
-# noinspection PyUnusedLocal
 def is_subscribed(callback: subscriber.SUBSCRIBER, namespace: str) -> bool:
     """
     Check if a specific callback is subscribed to a namespace.
@@ -410,9 +361,6 @@ def is_subscribed(callback: subscriber.SUBSCRIBER, namespace: str) -> bool:
         bool: True if callback is subscribed to namespace, False otherwise.
     """
 
-
-# noinspection PyUnresolvedReferences
-# noinspection PyUnusedLocal
 def get_subscriptions(callback: subscriber.SUBSCRIBER) -> list[str]:
     """
     Get all namespaces that a callback is subscribed to.
@@ -431,8 +379,6 @@ def get_subscriptions(callback: subscriber.SUBSCRIBER) -> list[str]:
         ['test.one', 'test.two']
     """
 
-
-# noinspection PyUnusedLocal
 def get_subscribers(namespace: str) -> list[subscriber.Subscriber]:
     """
     Get all subscribers for a namespace.
@@ -444,8 +390,6 @@ def get_subscribers(namespace: str) -> list[subscriber.Subscriber]:
             dead references.
     """
 
-
-# noinspection PyUnusedLocal
 def get_live_subscribers(namespace: str) -> list[subscriber.Subscriber]:
     """
     Get all live (non-garbage-collected) subscribers for a namespace.
@@ -457,11 +401,8 @@ def get_live_subscribers(namespace: str) -> list[subscriber.Subscriber]:
             callbacks only.
     """
 
-
 # -----Transformer Stubs-------------------------------------------------------
 
-
-# noinspection PyUnusedLocal
 def register_transformer(
     namespace: str, callback: transformer.TRANSFORMER, priority: int = 0
 ) -> None:
@@ -480,8 +421,6 @@ def register_transformer(
         priority (int): Execution order (higher = earlier, default 0).
     """
 
-
-# noinspection PyUnusedLocal
 def transform(
     namespace: str, priority: int = 0
 ) -> Callable[[transformer.TRANSFORMER], transformer.TRANSFORMER]:
@@ -496,8 +435,6 @@ def transform(
         priority (int): The execution priority. Defaults to 0.
     """
 
-
-# noinspection PyUnusedLocal
 def unregister_transformer(namespace: str, callback: transformer.TRANSFORMER) -> None:
     """
     Remove a transformer from a namespace.
@@ -507,8 +444,6 @@ def unregister_transformer(namespace: str, callback: transformer.TRANSFORMER) ->
         callback (TRANSFORMER): The transformer function to remove.
     """
 
-
-# noinspection PyUnusedLocal
 def set_transformer_exception_handler(
     handler: Optional[transformer.TRANSFORMER_EXCEPTION_HANDLER],
 ) -> None:
@@ -523,8 +458,6 @@ def set_transformer_exception_handler(
             Pass None to restore default behavior (re-raise exceptions).
     """
 
-
-# noinspection PyUnusedLocal
 def apply_transformers(
     namespace: str, kwargs: dict[str, Any]
 ) -> Optional[dict[str, Any]]:
@@ -541,16 +474,12 @@ def apply_transformers(
         Modified kwargs dict, or None if event was blocked
     """
 
-
 def clear_transformers() -> None:
     """Clear all registered transformers."""
-
 
 def get_all_transformer_namespaces() -> list[str]:
     """Get all namespaces that have transformers."""
 
-
-# noinspection PyUnusedLocal
 def get_transformer_count(namespace: str) -> int:
     """
     Get the number of transformers for a namespace.
@@ -561,8 +490,6 @@ def get_transformer_count(namespace: str) -> int:
         int: Number of transformers (including dead weak references).
     """
 
-
-# noinspection PyUnusedLocal
 def get_live_transformer_count(namespace: str) -> int:
     """
     Get the number of live (non-garbage-collected) transformers.
@@ -573,8 +500,6 @@ def get_live_transformer_count(namespace: str) -> int:
         Number of transformers with live callbacks.
     """
 
-
-# noinspection PyUnusedLocal
 def is_transformed(callback: transformer.TRANSFORMER, namespace: str) -> bool:
     """
     Check if a specific callback is registered as a transformer for a namespace.
@@ -587,9 +512,6 @@ def is_transformed(callback: transformer.TRANSFORMER, namespace: str) -> bool:
         bool: True if callback is registered as transformer for namespace, False otherwise.
     """
 
-
-# noinspection PyUnresolvedReferences
-# noinspection PyUnusedLocal
 def get_transformations(callback: transformer.TRANSFORMER) -> list[str]:
     """
     Get all namespaces that a callback is registered as a transformer for.
@@ -609,8 +531,6 @@ def get_transformations(callback: transformer.TRANSFORMER) -> list[str]:
         ['test.one', 'test.two']
     """
 
-
-# noinspection PyUnusedLocal
 def get_transformers(namespace: str) -> list[transformer.Transformer]:
     """
     Get all transformers for a namespace.
@@ -622,8 +542,6 @@ def get_transformers(namespace: str) -> list[transformer.Transformer]:
             dead references.
     """
 
-
-# noinspection PyUnusedLocal
 def get_live_transformers(namespace: str) -> list[transformer.Transformer]:
     """
     Get all live (non-garbage-collected) transformers for a namespace.
@@ -635,15 +553,11 @@ def get_live_transformers(namespace: str) -> list[transformer.Transformer]:
             callbacks only.
     """
 
-
 # -----Staging Stubs-----------------------------------------------------------
-
 
 def get_staged_namespaces() -> list[str]:
     """Get all namespaces with staged events."""
 
-
-# noinspection PyUnusedLocal
 def get_staged_count(namespace: Optional[str] = None) -> int:
     """
     Get the number of staged events.
@@ -655,9 +569,7 @@ def get_staged_count(namespace: Optional[str] = None) -> int:
         int: Number of staged events.
     """
 
-
 # -----Misc Control Flow-------------------------------------------------------
-
 
 paused: PausedContext
 """Context manager that pauses event emission for the duration of the block."""

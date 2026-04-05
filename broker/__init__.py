@@ -1,12 +1,10 @@
-import sys
-
 _paused: int
 
-from broker import _broker
+from broker._broker import Broker as _Broker
 
-_broker.__path__ = __path__
-_broker.__package__ = __package__
-_broker._BROKER_IMPORT_GUARD = True
-sys.modules[__name__] = _broker
+_instance = _Broker()
+paused = _instance.paused
 
-from broker.stub import *
+
+def __getattr__(name: str) -> object:
+    return getattr(_instance, name)
