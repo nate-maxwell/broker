@@ -207,6 +207,6 @@ marimo/_lsp/
 __marimo__/
 
 # Dev
-t.py
+dev/
 .idea/
 Broker.egg-info/
