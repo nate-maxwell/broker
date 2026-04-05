@@ -183,29 +183,11 @@ class Broker(BrokerIntrospectionMixin):
 
         # noinspection PyProtectedMember
         self.subscribe = subscriber._make_subscribe_decorator(self)
-        """
-        Decorator to register a function or static method as a subscriber.
-
-        To register an instance referencing class method (one using 'self'),
-        use broker.register_subscriber('source', 'event_name', self.method).
-
-        Args:
-            namespace (str): The event namespace to subscribe to.
-            priority (int): The execution priority. Defaults to 0.
-        """
+        """Decorator to register a function or static method as a subscriber."""
 
         # noinspection PyProtectedMember
         self.transform = transformer._make_transformer_decorator(self)
-        """
-        Decorator to register a function or static method as a transformer.
-
-        To register an instance referencing class method (one using 'self'),
-        use broker.register_transformer('source', 'event_name', self.method).
-
-        Args:
-            namespace (str): The event namespace to transform data for.
-            priority (int): The execution priority. Defaults to 0.
-        """
+        """Decorator to register a function or static method as a transformer."""
 
     @staticmethod
     def clear() -> None:
