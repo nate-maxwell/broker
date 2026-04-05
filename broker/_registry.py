@@ -22,6 +22,9 @@ _REGISTRY_IMPORT_GUARD = True
 # -----------------------------------------------------------------------------
 
 
+__all__ = []
+
+
 NAMESPACE_REGISTRY: dict[str, namespaces.NamespaceEntry] = {}
 """
 Global namespace registry.

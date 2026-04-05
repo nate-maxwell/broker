@@ -10,10 +10,9 @@ correct calls.
 For a complete breakdown of broker functionality, read the project readme.
 """
 
-# Remember to update doc strings in the stub.py file so static type checkers
+# Remember to update functions in the stub file so static type checkers
 # and intellisense can receive accurate feedback!
 
-import sys
 import asyncio
 import inspect
 import weakref
@@ -21,7 +20,6 @@ from typing import Any
 from typing import Callable
 from typing import Optional
 from typing import Union
-from types import ModuleType
 
 from broker import _registry
 from broker import handlers
@@ -35,7 +33,7 @@ from broker._introspection import BrokerIntrospectionMixin
 # -----Global Vars-------------------------------------------------------------
 version_major = 1
 version_minor = 11
-version_patch = 1
+version_patch = 2
 __version__ = f"{version_major}.{version_minor}.{version_patch}"
 
 # -----Notifies----------------------------------------------------------------
@@ -86,7 +84,7 @@ def _make_weak_ref(
         return weakref.ref(callback, cleanup)
 
 
-class Broker(ModuleType, BrokerIntrospectionMixin):
+class Broker(BrokerIntrospectionMixin):
     """
     Primary event coordinator.
     Supports hierarchical namespace through dot notation, with * for wildcards.
@@ -107,8 +105,7 @@ class Broker(ModuleType, BrokerIntrospectionMixin):
     # -----Runtime Closures----------------------------------------------------
     # ---Constants---
     __version__ = __version__
-    # Explicitly refuse to make closure for _registry.NAMESPACE_REGISTRY or _registry.STAGED_REGISTRY
-    # so they stay protected!
+    """Current broker version in {major}.{minor}.{path} format."""
 
     # ---Exceptions---
     SignatureMismatchError = SignatureMismatchError
@@ -133,8 +130,8 @@ class Broker(ModuleType, BrokerIntrospectionMixin):
     transformer = transformer
     # -------------------------------------------------------------------------
 
-    def __init__(self, name: str) -> None:
-        super().__init__(name)
+    def __init__(self) -> None:
+        super().__init__()
 
         self._install_decorators()
 
@@ -177,6 +174,9 @@ class Broker(ModuleType, BrokerIntrospectionMixin):
 
         self.notify_on_new_namespace: bool = False
         self.notify_on_del_namespace: bool = False
+
+        # -----Component Mechanisms-----
+        self.paused = PausedContext(self)
 
     def _install_decorators(self) -> None:
         """Create decorator bindings."""
@@ -896,11 +896,3 @@ class Broker(ModuleType, BrokerIntrospectionMixin):
             return True
 
         return False
-
-    # -----Introspection API---------------------------------------------------
-
-
-# This is here to protect the _registry.NAMESPACE_REGISTRY, creating a protective closure.
-custom_module = Broker(sys.modules[__name__].__name__)
-custom_module.paused = PausedContext(custom_module)
-sys.modules[__name__] = custom_module

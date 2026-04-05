@@ -10,12 +10,15 @@ broker system for type hints.
 
 import weakref
 from dataclasses import dataclass
-from types import ModuleType
 from typing import Any
 from typing import Callable
 from typing import Coroutine
 from typing import Optional
+from typing import TYPE_CHECKING
 from typing import Union
+
+if TYPE_CHECKING:
+    from broker._broker import Broker
 
 SUBSCRIBER = Union[Callable[..., Any], Callable[..., Coroutine[Any, Any, Any]]]
 """
@@ -60,7 +63,7 @@ class Subscriber(object):
         return self.weak_callback()
 
 
-def _make_subscribe_decorator(broker_module: ModuleType) -> Callable:
+def _make_subscribe_decorator(broker: "Broker") -> Callable:
     """
     Create a subscribe decorator with access to the broker module.
 
@@ -74,7 +77,7 @@ def _make_subscribe_decorator(broker_module: ModuleType) -> Callable:
     ) -> Callable[[SUBSCRIBER], SUBSCRIBER]:
 
         def decorator(func: SUBSCRIBER) -> SUBSCRIBER:
-            broker_module.register_subscriber(namespace, func, priority, once)
+            broker.register_subscriber(namespace, func, priority, once)
             return func
 
         return decorator
