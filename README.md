@@ -81,6 +81,12 @@ broker.emit('system.alert', message='Disk full')
 broker.unregister_subscriber('file.saved', on_file_saved)
 ```
 
+To remove a callback from every namespace it is registered to at once, use
+`unregister_subscriber_all`:
+```python
+broker.unregister_subscriber_all(my_handler)
+```
+
 ### One-Shot Subscribers
 
 A subscriber can be set to automatically unregister itself after firing once
@@ -102,34 +108,6 @@ emits to the same namespace will not trigger it:
 broker.emit('app.ready', status='ok')   # Prints: App came up: ok
 broker.emit('app.ready', status='ok')   # No output - already unregistered
 ```
-
-One-shot subscribers can coexist with permanent subscribers on the same namespace.
-Only the one-shot subscriber is removed after firing; others continue as normal:
-```python
-@broker.subscribe('session.start', once=True)
-def initialize_cache(user_id: str) -> None:
-    print(f'Cache initialized for {user_id}')
-
-@broker.subscribe('session.start')
-def log_session(user_id: str) -> None:
-    print(f'Session started: {user_id}')
-
-broker.emit('session.start', user_id='alice')
-# Cache initialized for alice
-# Session started: alice
-
-broker.emit('session.start', user_id='bob')
-# Session started: bob
-```
-
-### Unregistering from All Namespaces
-
-To remove a callback from every namespace it is registered to at once, use `unregister_subscriber_all`:
-```python
-broker.unregister_subscriber_all(my_handler)
-```
-
-This is useful for object teardown when a handler may be subscribed to multiple namespaces and tracking them manually would be error-prone.
 
 ## Emitting Events
 
@@ -160,20 +138,6 @@ broker.emit('process.data', data='test')  # Only sync_handler runs
 
 # emit_async() calls both sync and async handlers
 await broker.emit_async('process.data', data='test')  # Both run
-```
-
-### Pausing Emission
-
-The broker can be paused using the `broker.paused()` context manager. While
-paused, all calls to `emit()` and `emit_async()` are suppressed silently.
-Emission resumes automatically when the context exits, even if an exception
-is raised.
-```python
-with broker.paused():
-    broker.emit('file.saved', filename='test.exr')  # suppressed
-    await broker.emit_async('render.done', frame=42)  # suppressed
-
-broker.emit('file.saved', filename='test.exr')  # delivered
 ```
 
 Staging is unaffected by pause — `stage()` always queues events regardless
@@ -229,6 +193,20 @@ To discard staged events without dispatching, use `clear_staged()`:
 ```python
 broker.stage('file.saved', filename='temp.txt', size=0)
 broker.clear_staged()  # discarded, nothing dispatched
+```
+
+### Pausing Emission
+
+The broker can be paused using the `broker.paused()` context manager. While
+paused, all calls to `emit()` and `emit_async()` are suppressed silently.
+Emission resumes automatically when the context exits, even if an exception
+is raised.
+```python
+with broker.paused():
+    broker.emit('file.saved', filename='test.exr')  # suppressed
+    await broker.emit_async('render.done', frame=42)  # suppressed
+
+broker.emit('file.saved', filename='test.exr')  # delivered
 ```
 
 ## Signature Validation
@@ -515,65 +493,6 @@ importlib.reload(broker)  # Raises ImportError
 ```
 
 This protects the global namespace/subscriber table from being accidentally cleared.
-
-## Complete Example
-
-```python
-import asyncio
-import broker
-from broker import handlers
-
-# Configure exception handling
-broker.set_subscriber_exception_handler(handlers.log_and_continue_subscriber_exception)
-
-# Add data enrichment transformer
-def add_metadata(namespace: str, kwargs: dict) -> dict:
-    kwargs['source'] = 'app'
-    kwargs['version'] = '1.0'
-    return kwargs
-
-broker.register_transformer('*', add_metadata, priority=10)
-
-# Add validation transformer
-def validate_file_size(namespace: str, kwargs: dict) -> dict | None:
-    if 'size' in kwargs and kwargs['size'] > 10_000_000:
-        print(f"File too large: {kwargs.get('filename')}")
-        return None  # Block large files
-    return kwargs
-
-broker.register_transformer('file.*', validate_file_size, priority=5)
-
-# Register handlers with priorities
-@broker.subscribe('file.saved', priority=10)
-def backup_file(filename: str, size: int, **kwargs) -> None:
-    print(f'Backing up: {filename}')
-
-@broker.subscribe('file.saved', priority=5)
-def log_file(filename: str, size: int, **kwargs) -> None:
-    print(f'Logged: {filename} ({size} bytes, v{kwargs["version"]})')
-
-@broker.subscribe('file.*')
-async def async_notify(**kwargs) -> None:
-    await asyncio.sleep(0.1)
-    print(f'Notification sent for: {kwargs.get("filename")}')
-
-# Emit events
-broker.emit('file.saved', filename='small.txt', size=1024)
-# Output:
-# Backing up: small.txt
-# Logged: small.txt (1024 bytes, v1.0)
-
-await broker.emit_async('file.saved', filename='document.txt', size=2048)
-# Output:
-# Backing up: document.txt
-# Logged: document.txt (2048 bytes, v1.0)
-# Notification sent for: document.txt
-
-# This gets blocked by the validator
-broker.emit('file.saved', filename='huge.bin', size=50_000_000)
-# Output:
-# File too large: huge.bin
-```
 
 ## API Reference
 
