@@ -8,6 +8,7 @@ subscribers table from being lost on import.
 import sys
 
 from broker import namespaces
+from typing import DefaultDict
 
 # -----------------------------------------------------------------------------
 _existing = sys.modules.get("broker._registry")
@@ -32,7 +33,7 @@ Each namespace tracks its subscribers, transformers, and expected signature.
 A namespace exists if it has at least one subscriber OR transformer.
 """
 
-STAGED_REGISTRY: dict[str, list[dict]] = {}
+STAGED_REGISTRY: dict[str, list[dict]] = DefaultDict(list)
 """
 A separate namespace table to temporarily hold emitted values until the user
 calls broker.emit_staged(). 

@@ -33,7 +33,7 @@ from broker._introspection import BrokerIntrospectionMixin
 # -----Global Vars-------------------------------------------------------------
 version_major = 1
 version_minor = 11
-version_patch = 2
+version_patch = 3
 __version__ = f"{version_major}.{version_minor}.{version_patch}"
 
 # -----Notifies----------------------------------------------------------------
@@ -594,9 +594,7 @@ class Broker(BrokerIntrospectionMixin):
             namespace (str): The namespace to pass the event to.
             **kwargs: The arguments to pass through the namespace.
         """
-        entries = _registry.STAGED_REGISTRY.get(namespace, [])
-        entries.append(kwargs)
-        _registry.STAGED_REGISTRY[namespace] = entries
+        _registry.STAGED_REGISTRY[namespace].append(kwargs)
 
     def emit_staged(self, flush: bool = True) -> None:
         """
