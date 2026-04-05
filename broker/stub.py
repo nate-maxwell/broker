@@ -20,6 +20,7 @@ from typing import Union
 from broker import handlers
 from broker import subscriber
 from broker import transformer
+from broker.paused import PausedContext
 
 
 # -----Variables---------------------------------------------------------------
@@ -653,3 +654,18 @@ def get_staged_count(namespace: Optional[str] = None) -> int:
     Returns:
         int: Number of staged events.
     """
+
+
+# -----Misc Control Flow-------------------------------------------------------
+
+
+paused: PausedContext
+"""Context manager that pauses event emission for the duration of the block."""
+
+_paused: int
+"""
+When True, the broker will not pass signals on to subscribers through emit or
+emit_async.
+Primarily toggled through context managers. If the value is above 0 then the
+broker is paused
+"""

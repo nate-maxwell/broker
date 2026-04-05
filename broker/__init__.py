@@ -10,6 +10,8 @@ if _existing is not None and hasattr(_existing, "_BROKER_IMPORT_GUARD"):
     )
 # -----------------------------------------------------------------------------
 
+_paused: int
+
 from broker import _broker
 
 _broker.__path__ = __path__
