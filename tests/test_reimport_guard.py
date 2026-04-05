@@ -11,6 +11,6 @@ def test_reimport_guard() -> None:
 
     with pytest.raises(
         ImportError,
-        match="Module 'broker' has already been imported and cannot be reloaded",
+        match="Module 'broker._registry' has already been imported and cannot be reloaded",
     ):
         importlib.reload(broker)
