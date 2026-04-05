@@ -162,6 +162,29 @@ broker.emit('process.data', data='test')  # Only sync_handler runs
 await broker.emit_async('process.data', data='test')  # Both run
 ```
 
+### Pausing Emission
+
+The broker can be paused using the `broker.paused()` context manager. While
+paused, all calls to `emit()` and `emit_async()` are suppressed silently.
+Emission resumes automatically when the context exits, even if an exception
+is raised.
+```python
+with broker.paused():
+    broker.emit('file.saved', filename='test.exr')  # suppressed
+    await broker.emit_async('render.done', frame=42)  # suppressed
+
+broker.emit('file.saved', filename='test.exr')  # delivered
+```
+
+Staging is unaffected by pause — `stage()` always queues events regardless
+of pause state. Only dispatch is suppressed:
+```python
+with broker.paused():
+    broker.stage('file.saved', filename='test.exr')  # staged, not suppressed
+
+broker.emit_staged()  # delivered
+```
+
 ### Staging Events
 
 Events can be staged for deferred dispatch using `stage()`. Staged events are
@@ -564,6 +587,7 @@ broker.emit('file.saved', filename='huge.bin', size=50_000_000)
 - `stage(namespace: str, **kwargs: Any)` - Stage an entry for emitting later
 - `emit_staged(flush: bool = True)` - Emits staged events through `broker.emit()`
 - `emit_staged_async(flush: bool = True)` - Emits staged events through `broker.emit_async()`
+- `paused()` - Context manager that suppresses all emission for the duration of the block
 
 - `register_transformer(namespace: str, transformer: Callable, priority: int = 0)` - Add event transformer
 - `set_transformer_exception_handler(handler: Callable | None)` - Configure transformer error handling
