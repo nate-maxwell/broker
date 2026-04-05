@@ -64,7 +64,7 @@ class EmitArgumentError(Exception):
     """Raised when emit arguments don't match subscriber signatures."""
 
 
-# -----Decorator Factories-----------------------------------------------------
+# -----------------------------------------------------------------------------
 
 
 def _make_weak_ref(
@@ -238,6 +238,27 @@ class Broker(BrokerIntrospectionMixin):
         if notify_collected and not namespace.startswith(_NOTIFY_NAMESPACE_ROOT):
             self.emit(namespace=collected_namespace, using=namespace)
 
+    def _unregister_item(
+        self,
+        namespace: str,
+        callback: Any,
+        attribute: str,
+        notify_flag: bool,
+        notify_namespace: str,
+    ) -> None:
+        """Shared unregister logic for subscribers and transformers."""
+        if namespace not in _registry.NAMESPACE_REGISTRY:
+            return
+
+        entry = _registry.NAMESPACE_REGISTRY[namespace]
+        items = getattr(entry, attribute)
+        setattr(entry, attribute, [i for i in items if i.callback != callback])
+
+        if not namespace.startswith(_NOTIFY_NAMESPACE_ROOT) and notify_flag:
+            self.emit(namespace=notify_namespace, using=namespace)
+
+        self._cleanup_namespace_if_empty(namespace)
+
     # -----Subscriber Management-----------------------------------------------
 
     @staticmethod
@@ -362,21 +383,13 @@ class Broker(BrokerIntrospectionMixin):
             namespace is removed from consolidation. Notify emits the used
             namespace.
         """
-        if namespace not in _registry.NAMESPACE_REGISTRY:
-            return
-
-        entry = _registry.NAMESPACE_REGISTRY[namespace]
-        entry.subscribers = [
-            sub for sub in entry.subscribers if sub.callback != callback
-        ]
-
-        if (
-            not namespace.startswith(_NOTIFY_NAMESPACE_ROOT)
-            and self.notify_on_unsubscribe
-        ):
-            self.emit(namespace=BROKER_ON_SUBSCRIBER_REMOVED, using=namespace)
-
-        self._cleanup_namespace_if_empty(namespace)
+        self._unregister_item(
+            namespace=namespace,
+            callback=callback,
+            attribute="subscribers",
+            notify_flag=self.notify_on_unsubscribe,
+            notify_namespace=BROKER_ON_SUBSCRIBER_REMOVED,
+        )
 
     def unregister_subscriber_all(self, callback: subscriber.SUBSCRIBER) -> None:
         """
@@ -690,19 +703,13 @@ class Broker(BrokerIntrospectionMixin):
             namespace (str): The namespace the transformer is registered to.
             callback (TRANSFORMER): The transformer function to remove.
         """
-        if namespace not in _registry.NAMESPACE_REGISTRY:
-            return
-
-        entry = _registry.NAMESPACE_REGISTRY[namespace]
-        entry.transformers = [t for t in entry.transformers if t.callback != callback]
-
-        if (
-            not namespace.startswith(_NOTIFY_NAMESPACE_ROOT)
-            and self.notify_on_transformer_remove
-        ):
-            self.emit(namespace=BROKER_ON_TRANSFORMER_REMOVED, using=namespace)
-
-        self._cleanup_namespace_if_empty(namespace)
+        self._unregister_item(
+            namespace=namespace,
+            callback=callback,
+            attribute="transformers",
+            notify_flag=self.notify_on_transformer_remove,
+            notify_namespace=BROKER_ON_TRANSFORMER_REMOVED,
+        )
 
     def set_transformer_exception_handler(
         self,
