@@ -19,7 +19,8 @@ from typing import Optional
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from broker._broker import Broker
+    # noinspection PyProtectedMember
+    from broker._private.broker import Broker
 
 
 class PausedContext(object):
