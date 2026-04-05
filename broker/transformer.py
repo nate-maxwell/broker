@@ -16,7 +16,8 @@ from typing import TYPE_CHECKING
 from typing import Union
 
 if TYPE_CHECKING:
-    from broker._broker import Broker
+    # noinspection PyProtectedMember
+    from broker._private.broker import Broker
 
 
 TRANSFORMER = Callable[[str, dict[str, Any]], Optional[dict[str, Any]]]

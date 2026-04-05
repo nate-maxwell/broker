@@ -21,13 +21,13 @@ from typing import Callable
 from typing import Optional
 from typing import Union
 
-from broker import _registry
+from broker._private import registry
 from broker import handlers
 from broker import transformer
 from broker import subscriber
 from broker import namespaces
 from broker.paused import PausedContext
-from broker._introspection import BrokerIntrospectionMixin
+from broker._private.introspection import BrokerIntrospectionMixin
 
 
 # -----Global Vars-------------------------------------------------------------
@@ -209,11 +209,11 @@ class Broker(BrokerIntrospectionMixin):
 
     @staticmethod
     def clear() -> None:
-        _registry.NAMESPACE_REGISTRY.clear()
+        registry.NAMESPACE_REGISTRY.clear()
 
     @staticmethod
     def clear_staged() -> None:
-        _registry.STAGED_REGISTRY.clear()
+        registry.STAGED_REGISTRY.clear()
 
     def _on_item_collected(
         self,
@@ -223,8 +223,8 @@ class Broker(BrokerIntrospectionMixin):
         collected_namespace: str,
     ) -> None:
         """Shared cleanup logic for garbage collected subscribers and transformers."""
-        if namespace in _registry.NAMESPACE_REGISTRY:
-            entry = _registry.NAMESPACE_REGISTRY[namespace]
+        if namespace in registry.NAMESPACE_REGISTRY:
+            entry = registry.NAMESPACE_REGISTRY[namespace]
             items = getattr(entry, attribute)
             setattr(entry, attribute, [i for i in items if i.callback is not None])
 
@@ -247,10 +247,10 @@ class Broker(BrokerIntrospectionMixin):
         notify_namespace: str,
     ) -> None:
         """Shared unregister logic for subscribers and transformers."""
-        if namespace not in _registry.NAMESPACE_REGISTRY:
+        if namespace not in registry.NAMESPACE_REGISTRY:
             return
 
-        entry = _registry.NAMESPACE_REGISTRY[namespace]
+        entry = registry.NAMESPACE_REGISTRY[namespace]
         items = getattr(entry, attribute)
         setattr(entry, attribute, [i for i in items if i.callback != callback])
 
@@ -338,7 +338,7 @@ class Broker(BrokerIntrospectionMixin):
         )
 
         is_new_namespace = self._ensure_namespace_exists(namespace)
-        entry = _registry.NAMESPACE_REGISTRY[namespace]
+        entry = registry.NAMESPACE_REGISTRY[namespace]
 
         # Validate/set signature
         if entry.signature is None:
@@ -415,7 +415,7 @@ class Broker(BrokerIntrospectionMixin):
         provided_args = set(kwargs.keys())
 
         # Check all namespaces that match the emitted namespace
-        for reg_namespace, entry in _registry.NAMESPACE_REGISTRY.items():
+        for reg_namespace, entry in registry.NAMESPACE_REGISTRY.items():
             if not self._matches(namespace, reg_namespace):
                 continue
 
@@ -453,7 +453,7 @@ class Broker(BrokerIntrospectionMixin):
     ) -> list[tuple[str, subscriber.Subscriber]]:
         """Get all live subscribers matching namespace, sorted by priority descending."""
         result = []
-        for reg_namespace, entry in _registry.NAMESPACE_REGISTRY.items():
+        for reg_namespace, entry in registry.NAMESPACE_REGISTRY.items():
             if self._matches(namespace, reg_namespace):
                 result.extend((reg_namespace, sub) for sub in entry.subscribers)
         result.sort(key=lambda x: x[1].priority, reverse=True)
@@ -594,7 +594,7 @@ class Broker(BrokerIntrospectionMixin):
             namespace (str): The namespace to pass the event to.
             **kwargs: The arguments to pass through the namespace.
         """
-        _registry.STAGED_REGISTRY[namespace].append(kwargs)
+        registry.STAGED_REGISTRY[namespace].append(kwargs)
 
     def emit_staged(self, flush: bool = True) -> None:
         """
@@ -604,11 +604,11 @@ class Broker(BrokerIntrospectionMixin):
             flush (bool): Whether to empty the current staging registry after
                 emitting. Defaults to True.
         """
-        namespaces_ = list(_registry.STAGED_REGISTRY.keys())
-        staged = {ns: list(_registry.STAGED_REGISTRY[ns]) for ns in namespaces_}
+        namespaces_ = list(registry.STAGED_REGISTRY.keys())
+        staged = {ns: list(registry.STAGED_REGISTRY[ns]) for ns in namespaces_}
 
         if flush:
-            _registry.STAGED_REGISTRY.clear()
+            registry.STAGED_REGISTRY.clear()
 
         for namespace, events in staged.items():
             for kwargs in events:
@@ -622,11 +622,11 @@ class Broker(BrokerIntrospectionMixin):
             flush (bool): Whether to empty the current staging registry after
                 emitting. Defaults to True.
         """
-        namespaces_ = list(_registry.STAGED_REGISTRY.keys())
-        staged = {ns: list(_registry.STAGED_REGISTRY[ns]) for ns in namespaces_}
+        namespaces_ = list(registry.STAGED_REGISTRY.keys())
+        staged = {ns: list(registry.STAGED_REGISTRY[ns]) for ns in namespaces_}
 
         if flush:
-            _registry.STAGED_REGISTRY.clear()
+            registry.STAGED_REGISTRY.clear()
 
         for namespace, events in staged.items():
             for kwargs in events:
@@ -674,7 +674,7 @@ class Broker(BrokerIntrospectionMixin):
         )
 
         is_new_namespace = self._ensure_namespace_exists(namespace)
-        entry = _registry.NAMESPACE_REGISTRY[namespace]
+        entry = registry.NAMESPACE_REGISTRY[namespace]
         entry.transformers.append(transformer_obj)
         entry.transformers.sort(key=lambda t: t.priority, reverse=True)
 
@@ -742,7 +742,7 @@ class Broker(BrokerIntrospectionMixin):
         """
         matching_transformers = []
 
-        for reg_namespace, entry in _registry.NAMESPACE_REGISTRY.items():
+        for reg_namespace, entry in registry.NAMESPACE_REGISTRY.items():
             if self._matches(namespace, reg_namespace):
                 matching_transformers.extend(entry.transformers)
 
@@ -776,15 +776,15 @@ class Broker(BrokerIntrospectionMixin):
 
     def clear_transformers(self) -> None:
         """Clear all registered transformers."""
-        for entry in _registry.NAMESPACE_REGISTRY.values():
+        for entry in registry.NAMESPACE_REGISTRY.values():
             entry.transformers.clear()
         empty_ns = [
             ns
-            for ns, entry in _registry.NAMESPACE_REGISTRY.items()
+            for ns, entry in registry.NAMESPACE_REGISTRY.items()
             if not entry.subscribers and not entry.transformers
         ]
         for ns in empty_ns:
-            del _registry.NAMESPACE_REGISTRY[ns]
+            del registry.NAMESPACE_REGISTRY[ns]
             if self.notify_on_del_namespace:
                 self.emit(namespace=BROKER_ON_NAMESPACE_DELETED, using=ns)
 
@@ -794,7 +794,7 @@ class Broker(BrokerIntrospectionMixin):
         return sorted(
             [
                 ns
-                for ns, entry in _registry.NAMESPACE_REGISTRY.items()
+                for ns, entry in registry.NAMESPACE_REGISTRY.items()
                 if entry.transformers
             ]
         )
@@ -876,12 +876,12 @@ class Broker(BrokerIntrospectionMixin):
 
     def _cleanup_namespace_if_empty(self, namespace: str) -> None:
         """Remove namespace from registry if it has no subscribers or transformers."""
-        if namespace not in _registry.NAMESPACE_REGISTRY:
+        if namespace not in registry.NAMESPACE_REGISTRY:
             return
 
-        entry = _registry.NAMESPACE_REGISTRY[namespace]
+        entry = registry.NAMESPACE_REGISTRY[namespace]
         if not entry.subscribers and not entry.transformers:
-            del _registry.NAMESPACE_REGISTRY[namespace]
+            del registry.NAMESPACE_REGISTRY[namespace]
             if (
                 not namespace.startswith(_NOTIFY_NAMESPACE_ROOT)
                 and self.notify_on_del_namespace
@@ -894,8 +894,8 @@ class Broker(BrokerIntrospectionMixin):
         Ensure namespace entry exists in registry.
         Returns True if the namespace was added, False if it already existed.
         """
-        if namespace not in _registry.NAMESPACE_REGISTRY:
-            _registry.NAMESPACE_REGISTRY[namespace] = namespaces.NamespaceEntry(
+        if namespace not in registry.NAMESPACE_REGISTRY:
+            registry.NAMESPACE_REGISTRY[namespace] = namespaces.NamespaceEntry(
                 [], [], None
             )
             return True

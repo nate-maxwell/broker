@@ -18,7 +18,8 @@ from typing import TYPE_CHECKING
 from typing import Union
 
 if TYPE_CHECKING:
-    from broker._broker import Broker
+    # noinspection PyProtectedMember
+    from broker._private.broker import Broker
 
 SUBSCRIBER = Union[Callable[..., Any], Callable[..., Coroutine[Any, Any, Any]]]
 """

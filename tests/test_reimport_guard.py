@@ -7,7 +7,7 @@ def test_reimport_guard() -> None:
     preventing developers form reimporting the module.
     """
     import importlib
-    import broker._registry
+    import broker._private.registry
 
     with pytest.raises(ImportError):
-        importlib.reload(broker._registry)
+        importlib.reload(broker._private.registry)

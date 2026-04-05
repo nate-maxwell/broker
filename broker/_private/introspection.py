@@ -19,11 +19,11 @@ from typing import Union
 
 from broker import subscriber
 from broker import transformer
-from broker._registry import NAMESPACE_REGISTRY
-from broker._registry import STAGED_REGISTRY
+from broker._private.registry import NAMESPACE_REGISTRY
+from broker._private.registry import STAGED_REGISTRY
 
 if TYPE_CHECKING:
-    from broker._broker import Broker
+    from broker._private.broker import Broker
 
 
 class BrokerIntrospectionMixin(object):
