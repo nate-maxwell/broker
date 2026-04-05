@@ -1,15 +1,5 @@
 import sys
 
-# -------Reimport Safeguard----------------------------------------------------
-_existing = sys.modules.get("broker")
-if _existing is not None and hasattr(_existing, "_BROKER_IMPORT_GUARD"):
-    raise ImportError(
-        "Module 'broker' has already been imported and cannot be reloaded. "
-        "Subscriber data would be lost. "
-        "Restart your Python session to reimport."
-    )
-# -----------------------------------------------------------------------------
-
 _paused: int
 
 from broker import _broker
