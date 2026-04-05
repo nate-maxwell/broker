@@ -45,10 +45,12 @@ from broker import handlers
 from broker import transformer
 from broker import subscriber
 from broker import namespaces
+from broker.paused import PausedContext
 
 
+# -----Global Vars-------------------------------------------------------------
 version_major = 1
-version_minor = 10
+version_minor = 11
 version_patch = 0
 __version__ = f"{version_major}.{version_minor}.{version_patch}"
 
@@ -111,50 +113,6 @@ def _make_weak_ref(
         return weakref.WeakMethod(callback, cleanup)
     else:
         return weakref.ref(callback, cleanup)
-
-
-def _make_subscribe_decorator(broker_module: "Broker") -> Callable:
-    """
-    Create a subscribe decorator with access to the broker module.
-
-    This exists as a function accepting the broker module as an argument so the
-    function can call register_subscriber() on the broker without referring to
-    it using a python namespace and thus creating a circular reference.
-    """
-
-    def subscribe_(
-        namespace: str, priority: int = 0, once: bool = False
-    ) -> Callable[[subscriber.SUBSCRIBER], subscriber.SUBSCRIBER]:
-
-        def decorator(func: subscriber.SUBSCRIBER) -> subscriber.SUBSCRIBER:
-            broker_module.register_subscriber(namespace, func, priority, once)
-            return func
-
-        return decorator
-
-    return subscribe_
-
-
-def _make_transformer_decorator(broker_module: "Broker") -> Callable:
-    """
-    Create a transform decorator with access to the broker module.
-
-    This exists as a function accepting the broker module as an argument so the
-    function can call register_subscriber() on the broker without referring to
-    it using a python namespace and thus creating a circular reference.
-    """
-
-    def transform_(
-        namespace: str, priority: int = 0
-    ) -> Callable[[transformer.TRANSFORMER], transformer.TRANSFORMER]:
-
-        def decorator(func: transformer.TRANSFORMER) -> transformer.TRANSFORMER:
-            broker_module.register_transformer(namespace, func, priority)
-            return func
-
-        return decorator
-
-    return transform_
 
 
 class Broker(ModuleType):
@@ -220,6 +178,19 @@ class Broker(ModuleType):
             handlers.TRANSFORMER_EXCEPTION_HANDLER
         ] = handlers.stop_and_log_transformer_exception
 
+        # ---Control Flow---
+        self._paused: int = 0
+        """
+        When True, the broker will not pass signals on to subscribers through emit or
+        emit_async.
+        Primarily toggled through context managers.
+        
+        This is tracked as an integer instead of a bool so that nested context
+        managers will not create an invalid state for outer context managers.
+        i.e. if a with block nested in another exists, the __exit__ may create
+        an invalid state that the outer with block will use before exiting.
+        """
+
         # -----Notifies-----
         self.notify_on_all: bool = False
 
@@ -241,7 +212,8 @@ class Broker(ModuleType):
     def _install_decorators(self) -> None:
         """Create decorator bindings."""
 
-        self.subscribe = _make_subscribe_decorator(self)
+        # noinspection PyProtectedMember
+        self.subscribe = subscriber._make_subscribe_decorator(self)
         """
         Decorator to register a function or static method as a subscriber.
 
@@ -253,7 +225,8 @@ class Broker(ModuleType):
             priority (int): The execution priority. Defaults to 0.
         """
 
-        self.transform = _make_transformer_decorator(self)
+        # noinspection PyProtectedMember
+        self.transform = transformer._make_transformer_decorator(self)
         """
         Decorator to register a function or static method as a transformer.
 
@@ -513,6 +486,9 @@ class Broker(ModuleType):
             -Emits a notify event after args have been sent to subscribers.
             Notify emits the used namespace.
         """
+        if self._paused > 0:
+            return
+
         self._validate_emit_args(namespace, kwargs)
 
         transformed_kwargs = self.apply_transformers(namespace, kwargs)
@@ -568,6 +544,9 @@ class Broker(ModuleType):
             -Emits a notify event after args have been sent to subscribers.
             Notify emits the used namespace.
         """
+        if self._paused > 0:
+            return
+
         self._validate_emit_args(namespace, kwargs)
 
         transformed_kwargs = self.apply_transformers(namespace, kwargs)
@@ -1451,4 +1430,5 @@ class Broker(ModuleType):
 
 # This is here to protect the _NAMESPACE_REGISTRY, creating a protective closure.
 custom_module = Broker(sys.modules[__name__].__name__)
+custom_module.paused = PausedContext(custom_module)
 sys.modules[__name__] = custom_module
