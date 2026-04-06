@@ -21,6 +21,7 @@ from typing import Callable
 from typing import Optional
 from typing import Union
 
+from broker._private import decorators
 from broker._private import registry
 from broker import handlers
 from broker import transformer
@@ -33,7 +34,7 @@ from broker._private.introspection import BrokerIntrospectionMixin
 # -----Version-----------------------------------------------------------------
 version_major = 1
 version_minor = 11
-version_patch = 4
+version_patch = 5
 __version__ = f"{version_major}.{version_minor}.{version_patch}"
 
 # -----Notifies----------------------------------------------------------------
@@ -147,9 +148,8 @@ class Broker(BrokerIntrospectionMixin):
         # ---Control Flow---
         self._paused: int = 0
         """
-        When True, the broker will not pass signals on to subscribers through emit or
-        emit_async.
-        Primarily toggled through context managers.
+        When True, the broker will not pass signals on to subscribers through
+        emit or emit_async. Primarily toggled through context managers.
         
         This is tracked as an integer instead of a bool so that nested context
         managers will not create an invalid state for outer context managers.
@@ -180,13 +180,10 @@ class Broker(BrokerIntrospectionMixin):
 
     def _install_decorators(self) -> None:
         """Create decorator bindings."""
-
-        # noinspection PyProtectedMember
-        self.subscribe = subscriber._make_subscribe_decorator(self)
+        self.subscribe = decorators.make_subscribe_decorator(self)
         """Decorator to register a function or static method as a subscriber."""
 
-        # noinspection PyProtectedMember
-        self.transform = transformer._make_transformer_decorator(self)
+        self.transform = decorators.make_transformer_decorator(self)
         """Decorator to register a function or static method as a transformer."""
 
     @staticmethod
