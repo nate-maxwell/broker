@@ -152,7 +152,7 @@ def on_emit(namespace: str, kwargs: dict) -> None:
 
 More info can be found [here](./docs/EventNotifies.md).
 
-### Reimport Protection
+## Reimport Protection
 
 The broker is a singleton with reimport safeguards. Reimporting raises
 `ImportError` to prevent data loss:
