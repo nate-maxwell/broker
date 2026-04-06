@@ -12,10 +12,10 @@ from broker import namespaces
 from broker import subscriber
 
 # -----------------------------------------------------------------------------
-_existing = sys.modules.get("broker._private.registry")
+_existing = sys.modules.get("broker.private.registry")
 if _existing is not None and hasattr(_existing, "_REGISTRY_IMPORT_GUARD"):
     raise ImportError(
-        "Module 'broker._private.registry' has already been imported and cannot be reloaded. "
+        "Module 'broker.private.registry' has already been imported and cannot be reloaded. "
         "Subscriber data would be lost. "
         "Restart your Python session to reimport."
     )

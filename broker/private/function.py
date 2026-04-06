@@ -4,7 +4,7 @@ Internal utility functions for the event broker.
 Provides three low-level utilities used during subscriber registration and
 event emission:
 
-Not intended for direct use outside of broker/_private/.
+Not intended for direct use outside of broker/private/.
 """
 
 import inspect
@@ -16,7 +16,7 @@ from typing import Union
 
 from broker import exceptions
 from broker import subscriber
-from broker._private import registry
+from broker.private import registry
 
 
 def make_weak_ref(

@@ -21,10 +21,10 @@ from broker import exceptions
 from broker import handlers
 from broker import subscriber
 from broker import transformer
-from broker._private import decorators
-from broker._private import function
-from broker._private import registry
-from broker._private.introspection import BrokerIntrospectionMixin
+from broker.private import decorators
+from broker.private import function
+from broker.private import registry
+from broker.private.introspection import BrokerIntrospectionMixin
 from broker.paused import PausedContext
 
 
