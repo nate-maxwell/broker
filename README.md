@@ -127,6 +127,12 @@ broker.register_subscriber('flexible.event', flexible_handler)
 broker.emit('flexible.event', foo='bar', count=42, active=True)
 ```
 
+### Weak References
+
+The broker will not maintain references to items, preventing them from being
+culled by the garbage collector.
+Deletion of items referenced by the broker can be subscribed to.
+
 ## Broker Event Notifications
 
 Subscribe to internal broker events to monitor subscription changes, emissions, and namespace lifecycle:
