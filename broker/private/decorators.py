@@ -1,3 +1,12 @@
+"""
+Decorator factories to create the @subscribe and @transform decorators for the
+broker.
+
+These exist as functinos accepting the broker module as an argument so the
+function can call register_<type>() on the broker without needing to be a method
+of the broker itself.
+"""
+
 from typing import Callable
 from typing import TYPE_CHECKING
 
