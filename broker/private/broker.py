@@ -14,75 +14,18 @@ For a complete breakdown of broker functionality, read the project readme.
 # and intellisense can receive accurate feedback!
 
 import asyncio
-import inspect
-import weakref
 from typing import Any
-from typing import Callable
 from typing import Optional
-from typing import Union
 
-from broker._private import decorators
-from broker._private import registry
+from broker import exceptions
 from broker import handlers
-from broker import transformer
 from broker import subscriber
-from broker import namespaces
+from broker import transformer
+from broker.private import decorators
+from broker.private import function
+from broker.private import registry
+from broker.private.introspection import BrokerIntrospectionMixin
 from broker.paused import PausedContext
-from broker._private.introspection import BrokerIntrospectionMixin
-
-
-# -----Version-----------------------------------------------------------------
-version_major = 1
-version_minor = 11
-version_patch = 5
-__version__ = f"{version_major}.{version_minor}.{version_patch}"
-
-# -----Notifies----------------------------------------------------------------
-_NOTIFY_NAMESPACE_ROOT = "broker.notify."
-
-BROKER_ON_SUBSCRIBER_ADDED = f"{_NOTIFY_NAMESPACE_ROOT}subscriber.added"
-BROKER_ON_SUBSCRIBER_REMOVED = f"{_NOTIFY_NAMESPACE_ROOT}subscriber.removed"
-BROKER_ON_SUBSCRIBER_COLLECTED = f"{_NOTIFY_NAMESPACE_ROOT}subscriber.collected"
-
-BROKER_ON_TRANSFORMER_ADDED = f"{_NOTIFY_NAMESPACE_ROOT}transformer.added"
-BROKER_ON_TRANSFORMER_REMOVED = f"{_NOTIFY_NAMESPACE_ROOT}transformer.removed"
-BROKER_ON_TRANSFORMER_COLLECTED = f"{_NOTIFY_NAMESPACE_ROOT}transformer.collected"
-
-BROKER_ON_EMIT = f"{_NOTIFY_NAMESPACE_ROOT}emit.sync"
-BROKER_ON_EMIT_ASYNC = f"{_NOTIFY_NAMESPACE_ROOT}emit.async"
-BROKER_ON_EMIT_ALL = f"{_NOTIFY_NAMESPACE_ROOT}emit.all"
-
-BROKER_ON_NAMESPACE_CREATED = f"{_NOTIFY_NAMESPACE_ROOT}namespace.created"
-BROKER_ON_NAMESPACE_DELETED = f"{_NOTIFY_NAMESPACE_ROOT}namespace.deleted"
-
-
-# -----Exceptions--------------------------------------------------------------
-class SignatureMismatchError(Exception):
-    """Raised when callback signatures don't match for a namespace."""
-
-
-class EmitArgumentError(Exception):
-    """Raised when emit arguments don't match subscriber signatures."""
-
-
-# -----------------------------------------------------------------------------
-
-
-def _make_weak_ref(
-    callback: subscriber.SUBSCRIBER,
-    namespace: str,
-    on_collected_callback: Callable[[str], None],
-) -> Union[weakref.ref[Any], weakref.WeakMethod]:
-    """Create appropriate weak reference for any callback type."""
-
-    def cleanup(_: Union[weakref.ref[Any], weakref.WeakMethod]) -> None:
-        # Arg needed to add for weakref creation.
-        on_collected_callback(namespace)
-
-    if hasattr(callback, "__self__"):
-        return weakref.WeakMethod(callback, cleanup)
-    else:
-        return weakref.ref(callback, cleanup)
 
 
 class Broker(BrokerIntrospectionMixin):
@@ -103,27 +46,36 @@ class Broker(BrokerIntrospectionMixin):
     or decorate with @transform.
     """
 
+    # -----Class Values--------------------------------------------------------
+    # ---Default Namespaces---
+    _NOTIFY_NAMESPACE_ROOT = "broker.notify."
+
+    BROKER_ON_SUBSCRIBER_ADDED = f"{_NOTIFY_NAMESPACE_ROOT}subscriber.added"
+    BROKER_ON_SUBSCRIBER_REMOVED = f"{_NOTIFY_NAMESPACE_ROOT}subscriber.removed"
+    BROKER_ON_SUBSCRIBER_COLLECTED = f"{_NOTIFY_NAMESPACE_ROOT}subscriber.collected"
+
+    BROKER_ON_TRANSFORMER_ADDED = f"{_NOTIFY_NAMESPACE_ROOT}transformer.added"
+    BROKER_ON_TRANSFORMER_REMOVED = f"{_NOTIFY_NAMESPACE_ROOT}transformer.removed"
+    BROKER_ON_TRANSFORMER_COLLECTED = f"{_NOTIFY_NAMESPACE_ROOT}transformer.collected"
+
+    BROKER_ON_EMIT = f"{_NOTIFY_NAMESPACE_ROOT}emit.sync"
+    BROKER_ON_EMIT_ASYNC = f"{_NOTIFY_NAMESPACE_ROOT}emit.async"
+    BROKER_ON_EMIT_ALL = f"{_NOTIFY_NAMESPACE_ROOT}emit.all"
+
+    BROKER_ON_NAMESPACE_CREATED = f"{_NOTIFY_NAMESPACE_ROOT}namespace.created"
+    BROKER_ON_NAMESPACE_DELETED = f"{_NOTIFY_NAMESPACE_ROOT}namespace.deleted"
+
     # -----Runtime Closures----------------------------------------------------
     # ---Constants---
-    __version__ = __version__
+    version_major = 1
+    version_minor = 11
+    version_patch = 6
+    __version__ = f"{version_major}.{version_minor}.{version_patch}"
     """Current broker version in {major}.{minor}.{path} format."""
 
     # ---Exceptions---
-    SignatureMismatchError = SignatureMismatchError
-    EmitArgumentError = EmitArgumentError
-
-    # ---Default Namespaces---
-    BROKER_ON_SUBSCRIBER_ADDED = BROKER_ON_SUBSCRIBER_ADDED
-    BROKER_ON_SUBSCRIBER_REMOVED = BROKER_ON_SUBSCRIBER_REMOVED
-    BROKER_ON_SUBSCRIBER_COLLECTED = BROKER_ON_SUBSCRIBER_COLLECTED
-    BROKER_ON_TRANSFORMER_ADDED = BROKER_ON_TRANSFORMER_ADDED
-    BROKER_ON_TRANSFORMER_REMOVED = BROKER_ON_TRANSFORMER_REMOVED
-    BROKER_ON_TRANSFORMER_COLLECTED = BROKER_ON_TRANSFORMER_COLLECTED
-    BROKER_ON_EMIT = BROKER_ON_EMIT
-    BROKER_ON_EMIT_ASYNC = BROKER_ON_EMIT_ASYNC
-    BROKER_ON_EMIT_ALL = BROKER_ON_EMIT_ALL
-    BROKER_ON_NAMESPACE_CREATED = BROKER_ON_NAMESPACE_CREATED
-    BROKER_ON_NAMESPACE_DELETED = BROKER_ON_NAMESPACE_DELETED
+    SignatureMismatchError = exceptions.SignatureMismatchError
+    EmitArgumentError = exceptions.EmitArgumentError
 
     # ---Modules---
     handlers = handlers
@@ -194,84 +146,7 @@ class Broker(BrokerIntrospectionMixin):
     def clear_staged() -> None:
         registry.STAGED_REGISTRY.clear()
 
-    def _on_item_collected(
-        self,
-        namespace: str,
-        attribute: str,
-        notify_collected: bool,
-        collected_namespace: str,
-    ) -> None:
-        """Shared cleanup logic for garbage collected subscribers and transformers."""
-        if namespace in registry.NAMESPACE_REGISTRY:
-            entry = registry.NAMESPACE_REGISTRY[namespace]
-            items = getattr(entry, attribute)
-            setattr(entry, attribute, [i for i in items if i.callback is not None])
-
-            if self._cleanup_namespace_if_empty(namespace):
-                if (
-                    not namespace.startswith(_NOTIFY_NAMESPACE_ROOT)
-                    and self.notify_on_del_namespace
-                ):
-                    self.emit(namespace=BROKER_ON_NAMESPACE_DELETED, using=namespace)
-
-        if notify_collected and not namespace.startswith(_NOTIFY_NAMESPACE_ROOT):
-            self.emit(namespace=collected_namespace, using=namespace)
-
-    def _unregister_item(
-        self,
-        namespace: str,
-        callback: Any,
-        attribute: str,
-        notify_flag: bool,
-        notify_namespace: str,
-    ) -> None:
-        """Shared unregister logic for subscribers and transformers."""
-        if namespace not in registry.NAMESPACE_REGISTRY:
-            return
-
-        entry = registry.NAMESPACE_REGISTRY[namespace]
-        items = getattr(entry, attribute)
-        setattr(entry, attribute, [i for i in items if i.callback != callback])
-
-        if not namespace.startswith(_NOTIFY_NAMESPACE_ROOT) and notify_flag:
-            self.emit(namespace=notify_namespace, using=namespace)
-
-        self._cleanup_namespace_if_empty(namespace)
-
     # -----Subscriber Management-----------------------------------------------
-
-    @staticmethod
-    def _get_callback_params(callback: subscriber.SUBSCRIBER) -> Optional[set[str]]:
-        """
-        Extract parameter names from a callback function.
-
-        Args:
-            callback (CALLBACK): The callback function to inspect.
-        Returns:
-            Optional[set[str]]: Set of parameter names, or None if callback
-                accepts **kwargs.
-        """
-        sig = inspect.signature(callback)
-
-        # **kwargs is not tracked
-        for param in sig.parameters.values():
-            if param.kind == inspect.Parameter.VAR_KEYWORD:
-                return None
-
-        return {
-            name
-            for name, param in sig.parameters.items()
-            if param.kind != inspect.Parameter.VAR_POSITIONAL  # exclude *args
-        }
-
-    def _on_subscriber_collected(self, namespace: str) -> None:
-        """Called when a subscriber is garbage collected."""
-        self._on_item_collected(
-            namespace=namespace,
-            attribute="subscribers",
-            notify_collected=self.notify_on_collected,
-            collected_namespace=BROKER_ON_SUBSCRIBER_COLLECTED,
-        )
 
     def register_subscriber(
         self,
@@ -299,10 +174,10 @@ class Broker(BrokerIntrospectionMixin):
             Emits a notify event when a namespace is created and when a
             subscriber is registered. Notify emits the used namespace.
         """
-        callback_params = self._get_callback_params(callback)
+        callback_params = function.get_callback_params(callback)
         is_async = asyncio.iscoroutinefunction(callback)
 
-        weak_callback = _make_weak_ref(
+        weak_callback = function.make_weak_ref(
             callback=callback,
             namespace=namespace,
             on_collected_callback=self._on_subscriber_collected,
@@ -316,7 +191,7 @@ class Broker(BrokerIntrospectionMixin):
             is_one_shot=once,
         )
 
-        is_new_namespace = self._ensure_namespace_exists(namespace)
+        is_new_namespace = registry.ensure_namespace_exists(namespace)
         entry = registry.NAMESPACE_REGISTRY[namespace]
 
         # Validate/set signature
@@ -327,7 +202,7 @@ class Broker(BrokerIntrospectionMixin):
             if existing_params is None or callback_params is None:
                 entry.signature = None
             elif existing_params != callback_params:
-                raise SignatureMismatchError(
+                raise self.SignatureMismatchError(
                     f"Subscriber parameter mismatch for namespace '{namespace}'. "
                     f"Expected parameters: {sorted(existing_params)}, "
                     f"but got: {sorted(callback_params)}"
@@ -335,18 +210,14 @@ class Broker(BrokerIntrospectionMixin):
 
         entry.subscribers.append(sub)
 
-        if (
-            is_new_namespace
-            and not namespace.startswith(_NOTIFY_NAMESPACE_ROOT)
-            and self.notify_on_new_namespace
-        ):
-            self.emit(namespace=BROKER_ON_NAMESPACE_CREATED, using=namespace)
+        if is_new_namespace:
+            self._notify_new_namespace_created(namespace)
 
         if (
-            not namespace.startswith(_NOTIFY_NAMESPACE_ROOT)
+            not namespace.startswith(self._NOTIFY_NAMESPACE_ROOT)
             and self.notify_on_subscribe
         ):
-            self.emit(namespace=BROKER_ON_SUBSCRIBER_ADDED, using=namespace)
+            self.emit(namespace=self.BROKER_ON_SUBSCRIBER_ADDED, using=namespace)
 
     def unregister_subscriber(
         self, namespace: str, callback: subscriber.SUBSCRIBER
@@ -367,7 +238,7 @@ class Broker(BrokerIntrospectionMixin):
             callback=callback,
             attribute="subscribers",
             notify_flag=self.notify_on_unsubscribe,
-            notify_namespace=BROKER_ON_SUBSCRIBER_REMOVED,
+            notify_namespace=self.BROKER_ON_SUBSCRIBER_REMOVED,
         )
 
     def unregister_subscriber_all(self, callback: subscriber.SUBSCRIBER) -> None:
@@ -380,35 +251,6 @@ class Broker(BrokerIntrospectionMixin):
         subscriber_namespaces = self.get_subscriptions(callback)
         for namespace in subscriber_namespaces:
             self.unregister_subscriber(namespace, callback)
-
-    def _validate_emit_args(self, namespace: str, kwargs: dict[str, Any]) -> None:
-        """
-        Validate that emit arguments match subscriber signatures.
-
-        Args:
-            namespace (str): The namespace being emitted to.
-            kwargs (dict[str, Any]): The keyword arguments being emitted.
-        Raises:
-            EmitArgumentError: If provided kwargs don't match subscriber signatures.
-        """
-        provided_args = set(kwargs.keys())
-
-        # Check all namespaces that match the emitted namespace
-        for reg_namespace, entry in registry.NAMESPACE_REGISTRY.items():
-            if not self._matches(namespace, reg_namespace):
-                continue
-
-            expected_params = entry.signature
-
-            if expected_params is None:
-                continue
-
-            if provided_args != expected_params:
-                raise EmitArgumentError(
-                    f"Argument mismatch when emitting to '{namespace}'. "
-                    f"Subscribers in '{reg_namespace}' expect: {sorted(expected_params)}, "
-                    f"but got: {sorted(provided_args)}"
-                )
 
     def set_subscriber_exception_handler(
         self, handler: Optional[handlers.SUBSCRIPTION_EXCEPTION_HANDLER]
@@ -426,17 +268,6 @@ class Broker(BrokerIntrospectionMixin):
         self._subscriptions_exception_handler = handler
 
     # -----Emitter Handling----------------------------------------------------
-
-    def _get_sorted_subscribers(
-        self, namespace: str
-    ) -> list[tuple[str, subscriber.Subscriber]]:
-        """Get all live subscribers matching namespace, sorted by priority descending."""
-        result = []
-        for reg_namespace, entry in registry.NAMESPACE_REGISTRY.items():
-            if self._matches(namespace, reg_namespace):
-                result.extend((reg_namespace, sub) for sub in entry.subscribers)
-        result.sort(key=lambda x: x[1].priority, reverse=True)
-        return result
 
     def emit(self, namespace: str, **kwargs: Any) -> None:
         """
@@ -462,7 +293,7 @@ class Broker(BrokerIntrospectionMixin):
         if self._paused > 0:
             return
 
-        self._validate_emit_args(namespace, kwargs)
+        function.validate_emit_args(namespace, kwargs)
 
         transformed_kwargs = self.apply_transformers(namespace, kwargs)
         if transformed_kwargs is None:
@@ -470,7 +301,7 @@ class Broker(BrokerIntrospectionMixin):
 
         one_shots: list[tuple[str, subscriber.SUBSCRIBER]] = []
 
-        for reg_namespace, sub in self._get_sorted_subscribers(namespace):
+        for reg_namespace, sub in registry.get_sorted_subscribers(namespace):
             callback = sub.callback
             if callback is None or sub.is_async:
                 continue
@@ -489,10 +320,10 @@ class Broker(BrokerIntrospectionMixin):
         for reg_namespace, callback in one_shots:
             self.unregister_subscriber(reg_namespace, callback)
 
-        if not namespace.startswith(_NOTIFY_NAMESPACE_ROOT) and (
+        if not namespace.startswith(self._NOTIFY_NAMESPACE_ROOT) and (
             self.notify_on_emit or self.notify_on_emit_all
         ):
-            self.emit(namespace=BROKER_ON_EMIT, using=namespace)
+            self.emit(namespace=self.BROKER_ON_EMIT, using=namespace)
 
     async def emit_async(self, namespace: str, **kwargs: Any) -> None:
         """
@@ -520,7 +351,7 @@ class Broker(BrokerIntrospectionMixin):
         if self._paused > 0:
             return
 
-        self._validate_emit_args(namespace, kwargs)
+        function.validate_emit_args(namespace, kwargs)
 
         transformed_kwargs = self.apply_transformers(namespace, kwargs)
         if transformed_kwargs is None:
@@ -528,7 +359,7 @@ class Broker(BrokerIntrospectionMixin):
 
         one_shots: list[tuple[str, subscriber.SUBSCRIBER]] = []
 
-        for reg_namespace, sub in self._get_sorted_subscribers(namespace):
+        for reg_namespace, sub in registry.get_sorted_subscribers(namespace):
             callback = sub.callback
 
             if callback is None:
@@ -552,10 +383,10 @@ class Broker(BrokerIntrospectionMixin):
         for reg_namespace, callback in one_shots:
             self.unregister_subscriber(reg_namespace, callback)
 
-        if not namespace.startswith(_NOTIFY_NAMESPACE_ROOT) and (
+        if not namespace.startswith(self._NOTIFY_NAMESPACE_ROOT) and (
             self.notify_on_emit_async or self.notify_on_emit_all
         ):
-            self.emit(namespace=BROKER_ON_EMIT_ASYNC, using=namespace)
+            self.emit(namespace=self.BROKER_ON_EMIT_ASYNC, using=namespace)
 
     # -----Staged Handling-----------------------------------------------------
 
@@ -613,15 +444,6 @@ class Broker(BrokerIntrospectionMixin):
 
     # -----Transformers--------------------------------------------------------
 
-    def _on_transformer_collected(self, namespace: str) -> None:
-        """Called when a transformer is garbage collected."""
-        self._on_item_collected(
-            namespace=namespace,
-            attribute="transformers",
-            notify_collected=self.notify_on_transformer_collected,
-            collected_namespace=BROKER_ON_TRANSFORMER_COLLECTED,
-        )
-
     def register_transformer(
         self,
         namespace: str,
@@ -642,7 +464,7 @@ class Broker(BrokerIntrospectionMixin):
                 and returns modified kwargs or None to block.
             priority (int): Execution order (higher = earlier, default 0).
         """
-        weak_transformer = _make_weak_ref(
+        weak_transformer = function.make_weak_ref(
             callback=callback,
             namespace=namespace,
             on_collected_callback=self._on_transformer_collected,
@@ -652,23 +474,19 @@ class Broker(BrokerIntrospectionMixin):
             weak_callback=weak_transformer, namespace=namespace, priority=priority
         )
 
-        is_new_namespace = self._ensure_namespace_exists(namespace)
+        is_new_namespace = registry.ensure_namespace_exists(namespace)
         entry = registry.NAMESPACE_REGISTRY[namespace]
         entry.transformers.append(transformer_obj)
         entry.transformers.sort(key=lambda t: t.priority, reverse=True)
 
-        if (
-            is_new_namespace
-            and not namespace.startswith(_NOTIFY_NAMESPACE_ROOT)
-            and self.notify_on_new_namespace
-        ):
-            self.emit(namespace=BROKER_ON_NAMESPACE_CREATED, using=namespace)
+        if is_new_namespace:
+            self._notify_new_namespace_created(namespace)
 
         if (
-            not namespace.startswith(_NOTIFY_NAMESPACE_ROOT)
+            not namespace.startswith(self._NOTIFY_NAMESPACE_ROOT)
             and self.notify_on_transformer_add
         ):
-            self.emit(namespace=BROKER_ON_TRANSFORMER_ADDED, using=namespace)
+            self.emit(namespace=self.BROKER_ON_TRANSFORMER_ADDED, using=namespace)
 
     def unregister_transformer(
         self, namespace: str, callback: transformer.TRANSFORMER
@@ -685,7 +503,7 @@ class Broker(BrokerIntrospectionMixin):
             callback=callback,
             attribute="transformers",
             notify_flag=self.notify_on_transformer_remove,
-            notify_namespace=BROKER_ON_TRANSFORMER_REMOVED,
+            notify_namespace=self.BROKER_ON_TRANSFORMER_REMOVED,
         )
 
     def set_transformer_exception_handler(
@@ -722,7 +540,7 @@ class Broker(BrokerIntrospectionMixin):
         matching_transformers = []
 
         for reg_namespace, entry in registry.NAMESPACE_REGISTRY.items():
-            if self._matches(namespace, reg_namespace):
+            if registry.matches(namespace, reg_namespace):
                 matching_transformers.extend(entry.transformers)
 
         matching_transformers.sort(key=lambda t: t.priority, reverse=True)
@@ -755,30 +573,11 @@ class Broker(BrokerIntrospectionMixin):
 
     def clear_transformers(self) -> None:
         """Clear all registered transformers."""
-        for entry in registry.NAMESPACE_REGISTRY.values():
+        for ns, entry in registry.NAMESPACE_REGISTRY.items():
             entry.transformers.clear()
-        empty_ns = [
-            ns
-            for ns, entry in registry.NAMESPACE_REGISTRY.items()
-            if not entry.subscribers and not entry.transformers
-        ]
-        for ns in empty_ns:
-            del registry.NAMESPACE_REGISTRY[ns]
-            if self.notify_on_del_namespace:
-                self.emit(namespace=BROKER_ON_NAMESPACE_DELETED, using=ns)
+            self._cleanup_namespace_if_empty(ns)
 
-    @staticmethod
-    def get_all_transformer_namespaces() -> list[str]:
-        """Get all namespaces that have transformers."""
-        return sorted(
-            [
-                ns
-                for ns, entry in registry.NAMESPACE_REGISTRY.items()
-                if entry.transformers
-            ]
-        )
-
-    # -----Notifies + Helpers--------------------------------------------------
+    # -----Notify Flags--------------------------------------------------------
 
     def set_flag_states(
         self,
@@ -829,29 +628,35 @@ class Broker(BrokerIntrospectionMixin):
         self.notify_on_new_namespace = on_new_namespace
         self.notify_on_del_namespace = on_del_namespace
 
-    @staticmethod
-    def _matches(namespace: str, pattern: str) -> bool:
-        """
-        Check if an event namespace matches a pattern, typically another item's
-        namespace.
+    # -----Helpers-------------------------------------------------------------
 
-        Args:
-            namespace (str): The namespace where event was emitted.
-            pattern (str): The namespace to check against.
-        Returns:
-            bool: True if subscriber should receive the event.
-        """
-        if namespace == pattern:
-            return True
+    def _unregister_item(
+        self,
+        namespace: str,
+        callback: Any,
+        attribute: str,
+        notify_flag: bool,
+        notify_namespace: str,
+    ) -> None:
+        """Shared unregister logic for subscribers and transformers."""
+        if namespace not in registry.NAMESPACE_REGISTRY:
+            return
 
-        # Wildcard match - subscriber wants all events under a root
-        if pattern.endswith(".*"):
-            # Although not strictly necessary to remove . and *, doing so adds
-            # slightly more validity to the check.
-            root = pattern[:-2]
-            return namespace.startswith(root + ".")
+        entry = registry.NAMESPACE_REGISTRY[namespace]
+        items = getattr(entry, attribute)
+        setattr(entry, attribute, [i for i in items if i.callback != callback])
 
-        return False
+        if not namespace.startswith(self._NOTIFY_NAMESPACE_ROOT) and notify_flag:
+            self.emit(namespace=notify_namespace, using=namespace)
+
+        self._cleanup_namespace_if_empty(namespace)
+
+    def _notify_new_namespace_created(self, namespace: str) -> None:
+        if (
+            not namespace.startswith(self._NOTIFY_NAMESPACE_ROOT)
+            and self.notify_on_new_namespace
+        ):
+            self.emit(namespace=self.BROKER_ON_NAMESPACE_CREATED, using=namespace)
 
     def _cleanup_namespace_if_empty(self, namespace: str) -> None:
         """Remove namespace from registry if it has no subscribers or transformers."""
@@ -862,21 +667,43 @@ class Broker(BrokerIntrospectionMixin):
         if not entry.subscribers and not entry.transformers:
             del registry.NAMESPACE_REGISTRY[namespace]
             if (
-                not namespace.startswith(_NOTIFY_NAMESPACE_ROOT)
+                not namespace.startswith(self._NOTIFY_NAMESPACE_ROOT)
                 and self.notify_on_del_namespace
             ):
-                self.emit(namespace=BROKER_ON_NAMESPACE_DELETED, using=namespace)
+                self.emit(namespace=self.BROKER_ON_NAMESPACE_DELETED, using=namespace)
 
-    @staticmethod
-    def _ensure_namespace_exists(namespace: str) -> bool:
-        """
-        Ensure namespace entry exists in registry.
-        Returns True if the namespace was added, False if it already existed.
-        """
-        if namespace not in registry.NAMESPACE_REGISTRY:
-            registry.NAMESPACE_REGISTRY[namespace] = namespaces.NamespaceEntry(
-                [], [], None
-            )
-            return True
+    def _on_item_collected(
+        self,
+        namespace: str,
+        attribute: str,
+        notify_collected: bool,
+        collected_namespace: str,
+    ) -> None:
+        """Shared cleanup logic for garbage collected subscribers and transformers."""
+        if namespace in registry.NAMESPACE_REGISTRY:
+            entry = registry.NAMESPACE_REGISTRY[namespace]
+            items = getattr(entry, attribute)
+            setattr(entry, attribute, [i for i in items if i.callback is not None])
 
-        return False
+            self._cleanup_namespace_if_empty(namespace)
+
+        if notify_collected and not namespace.startswith(self._NOTIFY_NAMESPACE_ROOT):
+            self.emit(namespace=collected_namespace, using=namespace)
+
+    def _on_subscriber_collected(self, namespace: str) -> None:
+        """Called when a subscriber is garbage collected."""
+        self._on_item_collected(
+            namespace=namespace,
+            attribute="subscribers",
+            notify_collected=self.notify_on_collected,
+            collected_namespace=self.BROKER_ON_SUBSCRIBER_COLLECTED,
+        )
+
+    def _on_transformer_collected(self, namespace: str) -> None:
+        """Called when a transformer is garbage collected."""
+        self._on_item_collected(
+            namespace=namespace,
+            attribute="transformers",
+            notify_collected=self.notify_on_transformer_collected,
+            collected_namespace=self.BROKER_ON_TRANSFORMER_COLLECTED,
+        )

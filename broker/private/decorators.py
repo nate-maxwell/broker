@@ -5,7 +5,7 @@ from broker.subscriber import SUBSCRIBER
 from broker.transformer import TRANSFORMER
 
 if TYPE_CHECKING:
-    from broker._private.broker import Broker
+    from broker.private.broker import Broker
 
 
 def make_subscribe_decorator(broker: "Broker") -> Callable:

@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     # noinspection PyProtectedMember
-    from broker._private.broker import Broker
+    from broker.private.broker import Broker
 
 
 class PausedContext(object):
