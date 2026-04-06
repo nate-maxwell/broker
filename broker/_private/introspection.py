@@ -19,6 +19,7 @@ from typing import Union
 
 from broker import subscriber
 from broker import transformer
+from broker._private import registry
 from broker._private.registry import NAMESPACE_REGISTRY
 from broker._private.registry import STAGED_REGISTRY
 
@@ -264,6 +265,13 @@ class BrokerIntrospectionMixin(object):
             if trans.callback is not None
         ]
 
+    @staticmethod
+    def get_all_transformer_namespaces() -> list[str]:
+        """Get all namespaces that have transformers."""
+        return sorted(
+            [ns for ns, entry in NAMESPACE_REGISTRY.items() if entry.transformers]
+        )
+
     # -----Staging Introspection Methods---------------------------------------
 
     @staticmethod
@@ -304,7 +312,9 @@ class BrokerIntrospectionMixin(object):
         for namespace in NAMESPACE_REGISTRY.keys():
             # Pattern 'system.io.*' should match namespace 'system.io.file'
             # OR namespace 'system.*' should match pattern 'system.io.file'
-            if self._matches(namespace, pattern) or self._matches(pattern, namespace):
+            if registry.matches(namespace, pattern) or registry.matches(
+                pattern, namespace
+            ):
                 matching.append(namespace)
 
         return sorted(matching)
