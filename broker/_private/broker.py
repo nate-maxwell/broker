@@ -148,8 +148,8 @@ class Broker(BrokerIntrospectionMixin):
         # ---Control Flow---
         self._paused: int = 0
         """
-        When True, the broker will not pass signals on to subscribers through
-        emit or emit_async. Primarily toggled through context managers.
+        When greater than 0, the broker will not pass signals on to subscribers
+        through emit or emit_async. Primarily toggled through context managers.
         
         This is tracked as an integer instead of a bool so that nested context
         managers will not create an invalid state for outer context managers.
