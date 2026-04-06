@@ -12,12 +12,7 @@ from dataclasses import dataclass
 from typing import Any
 from typing import Callable
 from typing import Optional
-from typing import TYPE_CHECKING
 from typing import Union
-
-if TYPE_CHECKING:
-    # noinspection PyProtectedMember
-    from broker._private.broker import Broker
 
 
 TRANSFORMER = Callable[[str, dict[str, Any]], Optional[dict[str, Any]]]
@@ -60,25 +55,3 @@ class Transformer(object):
     def callback(self) -> Optional[TRANSFORMER]:
         """Get the live callback, or None if collected."""
         return self.weak_callback()
-
-
-def _make_transformer_decorator(broker: "Broker") -> Callable:
-    """
-    Create a transform decorator with access to the broker module.
-
-    This exists as a function accepting the broker module as an argument so the
-    function can call register_subscriber() on the broker without referring to
-    it using a python namespace and thus creating a circular reference.
-    """
-
-    def transform_(
-        namespace: str, priority: int = 0
-    ) -> Callable[[TRANSFORMER], TRANSFORMER]:
-
-        def decorator(func: TRANSFORMER) -> TRANSFORMER:
-            broker.register_transformer(namespace, func, priority)
-            return func
-
-        return decorator
-
-    return transform_
