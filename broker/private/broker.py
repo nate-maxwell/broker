@@ -65,7 +65,6 @@ class Broker(BrokerIntrospectionMixin):
     BROKER_ON_NAMESPACE_CREATED = f"{_NOTIFY_NAMESPACE_ROOT}namespace.created"
     BROKER_ON_NAMESPACE_DELETED = f"{_NOTIFY_NAMESPACE_ROOT}namespace.deleted"
 
-    # -----Runtime Closures----------------------------------------------------
     # ---Constants---
     version_major = 1
     version_minor = 11
@@ -73,6 +72,7 @@ class Broker(BrokerIntrospectionMixin):
     __version__ = f"{version_major}.{version_minor}.{version_patch}"
     """Current broker version in {major}.{minor}.{path} format."""
 
+    # -----Runtime Closures----------------------------------------------------
     # ---Exceptions---
     SignatureMismatchError = exceptions.SignatureMismatchError
     EmitArgumentError = exceptions.EmitArgumentError
