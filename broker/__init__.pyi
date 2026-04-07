@@ -41,6 +41,9 @@ BROKER_ON_EMIT_ALL: str
 BROKER_ON_NAMESPACE_CREATED: str
 BROKER_ON_NAMESPACE_DELETED: str
 
+__version__: str
+"""Current broker version in {major}.{minor}.{path} format."""
+
 class SignatureMismatchError(Exception):
     """Raised when callback signatures don't match for a namespace."""
 
