@@ -233,13 +233,20 @@ class Broker(BrokerIntrospectionMixin):
             namespace is removed from consolidation. Notify emits the used
             namespace.
         """
-        self._unregister_item(
-            namespace=namespace,
-            callback=callback,
-            attribute="subscribers",
-            notify_flag=self.notify_on_unsubscribe,
-            notify_namespace=self.BROKER_ON_SUBSCRIBER_REMOVED,
-        )
+        if namespace not in registry.NAMESPACE_REGISTRY:
+            return
+
+        entry = registry.NAMESPACE_REGISTRY[namespace]
+        items = getattr(entry, "subscribers")
+        setattr(entry, "subscribers", [i for i in items if i.callback != callback])
+
+        if (
+            not namespace.startswith(self._NOTIFY_NAMESPACE_ROOT)
+            and self.notify_on_unsubscribe
+        ):
+            self.emit(namespace=self.BROKER_ON_SUBSCRIBER_REMOVED, using=namespace)
+
+        self._cleanup_namespace_if_empty(namespace)
 
     def unregister_subscriber_all(self, callback: subscriber.SUBSCRIBER) -> None:
         """
@@ -498,13 +505,20 @@ class Broker(BrokerIntrospectionMixin):
             namespace (str): The namespace the transformer is registered to.
             callback (TRANSFORMER): The transformer function to remove.
         """
-        self._unregister_item(
-            namespace=namespace,
-            callback=callback,
-            attribute="transformers",
-            notify_flag=self.notify_on_transformer_remove,
-            notify_namespace=self.BROKER_ON_TRANSFORMER_REMOVED,
-        )
+        if namespace not in registry.NAMESPACE_REGISTRY:
+            return
+
+        entry = registry.NAMESPACE_REGISTRY[namespace]
+        items = getattr(entry, "transformers")
+        setattr(entry, "transformers", [i for i in items if i.callback != callback])
+
+        if (
+            not namespace.startswith(self._NOTIFY_NAMESPACE_ROOT)
+            and self.notify_on_transformer_remove
+        ):
+            self.emit(namespace=self.BROKER_ON_TRANSFORMER_REMOVED, using=namespace)
+
+        self._cleanup_namespace_if_empty(namespace)
 
     def set_transformer_exception_handler(
         self,
@@ -630,27 +644,6 @@ class Broker(BrokerIntrospectionMixin):
 
     # -----Helpers-------------------------------------------------------------
 
-    def _unregister_item(
-        self,
-        namespace: str,
-        callback: Any,
-        attribute: str,
-        notify_flag: bool,
-        notify_namespace: str,
-    ) -> None:
-        """Shared unregister logic for subscribers and transformers."""
-        if namespace not in registry.NAMESPACE_REGISTRY:
-            return
-
-        entry = registry.NAMESPACE_REGISTRY[namespace]
-        items = getattr(entry, attribute)
-        setattr(entry, attribute, [i for i in items if i.callback != callback])
-
-        if not namespace.startswith(self._NOTIFY_NAMESPACE_ROOT) and notify_flag:
-            self.emit(namespace=notify_namespace, using=namespace)
-
-        self._cleanup_namespace_if_empty(namespace)
-
     def _notify_new_namespace_created(self, namespace: str) -> None:
         if (
             not namespace.startswith(self._NOTIFY_NAMESPACE_ROOT)
@@ -672,38 +665,30 @@ class Broker(BrokerIntrospectionMixin):
             ):
                 self.emit(namespace=self.BROKER_ON_NAMESPACE_DELETED, using=namespace)
 
-    def _on_item_collected(
-        self,
-        namespace: str,
-        attribute: str,
-        notify_collected: bool,
-        collected_namespace: str,
-    ) -> None:
-        """Shared cleanup logic for garbage collected subscribers and transformers."""
+    def _on_subscriber_collected(self, namespace: str) -> None:
+        """Called when a subscriber is garbage collected."""
         if namespace in registry.NAMESPACE_REGISTRY:
             entry = registry.NAMESPACE_REGISTRY[namespace]
-            items = getattr(entry, attribute)
-            setattr(entry, attribute, [i for i in items if i.callback is not None])
+            items = getattr(entry, "subscribers")
+            setattr(entry, "subscribers", [i for i in items if i.callback is not None])
 
             self._cleanup_namespace_if_empty(namespace)
 
-        if notify_collected and not namespace.startswith(self._NOTIFY_NAMESPACE_ROOT):
-            self.emit(namespace=collected_namespace, using=namespace)
-
-    def _on_subscriber_collected(self, namespace: str) -> None:
-        """Called when a subscriber is garbage collected."""
-        self._on_item_collected(
-            namespace=namespace,
-            attribute="subscribers",
-            notify_collected=self.notify_on_collected,
-            collected_namespace=self.BROKER_ON_SUBSCRIBER_COLLECTED,
-        )
+        if self.notify_on_collected and not namespace.startswith(
+            self._NOTIFY_NAMESPACE_ROOT
+        ):
+            self.emit(namespace=self.BROKER_ON_SUBSCRIBER_COLLECTED, using=namespace)
 
     def _on_transformer_collected(self, namespace: str) -> None:
         """Called when a transformer is garbage collected."""
-        self._on_item_collected(
-            namespace=namespace,
-            attribute="transformers",
-            notify_collected=self.notify_on_transformer_collected,
-            collected_namespace=self.BROKER_ON_TRANSFORMER_COLLECTED,
-        )
+        if namespace in registry.NAMESPACE_REGISTRY:
+            entry = registry.NAMESPACE_REGISTRY[namespace]
+            items = getattr(entry, "transformers")
+            setattr(entry, "transformers", [i for i in items if i.callback is not None])
+
+            self._cleanup_namespace_if_empty(namespace)
+
+        if self.notify_on_transformer_collected and not namespace.startswith(
+            self._NOTIFY_NAMESPACE_ROOT
+        ):
+            self.emit(namespace=self.BROKER_ON_TRANSFORMER_COLLECTED, using=namespace)
