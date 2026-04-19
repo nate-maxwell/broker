@@ -24,7 +24,7 @@ dependencies = [
     "pytest",
     "pytest-asyncio"
 ]
-version = "1.11.6"
+version = "1.11.7"
 
 
 [project.urls]
