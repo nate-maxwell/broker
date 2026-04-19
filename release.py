@@ -7,6 +7,7 @@ from pathlib import Path
 
 TOML_PATH = Path(Path(__file__).parent, "pyproject.toml")
 BROKER_PATH = Path(Path(__file__).parent, "broker/private/broker.py")
+YAML_PATH = Path(Path(__file__).parent, "package.yaml")
 
 
 def parse_version(version_str: str) -> tuple[int, int, int]:
@@ -54,8 +55,30 @@ def update_python_version(new_version: tuple[int, int, int]) -> None:
     print(f"  version_patch = {patch}")
 
 
+def update_yaml_version(new_version: tuple[int, int, int]) -> None:
+    """Update version field in package.yaml file."""
+    content = YAML_PATH.read_text(encoding="utf-8")
+    version_str = ".".join(str(p) for p in new_version)
+
+    new_content, count = re.subn(
+        r"^(version\s*:\s*)\S+",
+        rf"\g<1>{version_str}",
+        content,
+        flags=re.MULTILINE,
+    )
+
+    if count == 0:
+        raise ValueError("No version field found in package.yaml")
+
+    YAML_PATH.write_text(new_content, encoding="utf-8")
+    print(f"Updated {YAML_PATH}:")
+    print(f"  version: {version_str}")
+
+
 def main() -> int:
-    update_python_version(get_current_version_from_toml())
+    new_version = get_current_version_from_toml()
+    update_python_version(new_version)
+    update_yaml_version(new_version)
     return 0
 
 
