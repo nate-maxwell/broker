@@ -16,15 +16,11 @@ description = "A simple event broker for python."
 readme = "README.md"
 requires-python = ">=3.10"
 keywords = ["python", "pubsub", "event", "broker"]
-classifiers = [
-    "Programming Language :: Python :: 3.10",
-]
-dependencies = [
-    'importlib-metadata; python_version<"3.10"',
-    "pytest",
-    "pytest-asyncio"
-]
-version = "1.11.7"
+classifiers = ["Programming Language :: Python :: 3.10"]
+
+dependencies = ['importlib-metadata; python_version<"3.10"']
+
+version = "1.11.8"
 
 
 [project.urls]
