@@ -14,7 +14,6 @@ import json
 import os
 from typing import Callable
 from typing import Optional
-from typing import TYPE_CHECKING
 from typing import Union
 
 from broker import subscriber
@@ -22,9 +21,6 @@ from broker import transformer
 from broker.private import registry
 from broker.private.registry import NAMESPACE_REGISTRY
 from broker.private.registry import STAGED_REGISTRY
-
-if TYPE_CHECKING:
-    from broker.private.broker import Broker
 
 
 class BrokerIntrospectionMixin(object):
@@ -192,7 +188,8 @@ class BrokerIntrospectionMixin(object):
             namespace (str): The namespace to check.
 
         Returns:
-            bool: True if callback is registered as transformer for namespace, False otherwise.
+            bool: True if callback is registered as a transformer for namespace,
+                False otherwise.
         """
         if namespace not in NAMESPACE_REGISTRY:
             return False
@@ -243,7 +240,11 @@ class BrokerIntrospectionMixin(object):
             list[transformer.Transformer]: List of Transformer objects. May include
                 dead references.
         """
-        return list(NAMESPACE_REGISTRY.get(namespace, {}).transformers)
+        entries = NAMESPACE_REGISTRY.get(namespace, None)
+        if entries is not None:
+            return list(entries.transformers)
+
+        return []
 
     @staticmethod
     def get_live_transformers(namespace: str) -> list[transformer.Transformer]:
@@ -296,7 +297,8 @@ class BrokerIntrospectionMixin(object):
 
     # -----General Introspection Methods-----------------------------
 
-    def get_matching_namespaces(self: Broker, pattern: str) -> list[str]:
+    @staticmethod
+    def get_matching_namespaces(pattern: str) -> list[str]:
         """
         Get all namespaces that match a pattern (including wildcards).
 
@@ -364,12 +366,13 @@ class BrokerIntrospectionMixin(object):
             ),
         }
 
-    def get_all_namespace_info(self) -> dict[str, dict[str, object]]:
+    def get_all_namespace_info(self) -> dict[str, dict[str, object] | None]:
         """
         Get detailed information for all namespaces.
 
         Returns:
-            dict[str, dict[str, object]]: Dictionary mapping namespace to info dict.
+            dict[str, dict[str, object] | None]: Dictionary mapping namespace
+                to info dict.
         """
         return {
             namespace: self.get_namespace_info(namespace)
@@ -461,7 +464,7 @@ class BrokerIntrospectionMixin(object):
         }
 
     @staticmethod
-    def _get_callback_info(callback: Callable) -> str:
+    def _get_callback_info(callback: Optional[Callable]) -> str:
         """Returns metadata on a callable as a string."""
         if callback is None:
             info = "<dead reference>"

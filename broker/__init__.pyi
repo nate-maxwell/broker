@@ -2,11 +2,11 @@
 Required for static type checkers to accept these names as members of the
 broker module.
 
-This module gets imported into the broker module so stubs are accessible
+This module gets imported into the broker module, so stubs are accessible
 through the broker namespace.
 
-The doc strings for each function exists in the stubs for intellisense
-fetching, instead of within the broker class itself because the broker class
+The doc strings for each function exist in the stubs for IntelliSense
+fetching instead of within the broker class itself because the broker class
 is a module replacement at runtime, so the namespaces during inspection are
 different.
 """

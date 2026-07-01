@@ -2,5 +2,5 @@ name: broker
 authors:
   - Nate Maxwell
 description: A lightweight event broker for python.
-version: 1.11.8
+version: 1.11.9
 env: {}
