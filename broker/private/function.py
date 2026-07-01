@@ -24,7 +24,7 @@ def make_weak_ref(
     namespace: str,
     on_collected_callback: Callable[[str], None],
 ) -> Union[weakref.ref[Any], weakref.WeakMethod]:
-    """Create appropriate weak reference for any callback type."""
+    """Create the appropriate weak reference for any callback type."""
 
     def cleanup(_: Union[weakref.ref[Any], weakref.WeakMethod]) -> None:
         # Arg needed to add for weakref creation.

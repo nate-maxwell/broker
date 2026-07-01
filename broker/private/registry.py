@@ -2,7 +2,7 @@
 Herein is the namespace table and staged emission buffer.
 
 A reimport protection clause exists at the top of the file to prevent the
-subscribers table from being lost on import.
+subscriber table from being lost on import.
 """
 
 import sys
@@ -65,7 +65,7 @@ def matches(namespace: str, pattern: str) -> bool:
 
 def ensure_namespace_exists(namespace: str) -> bool:
     """
-    Ensure namespace entry exists in registry.
+    Ensure a namespace entry exists in registry.
     Returns True if the namespace was added, False if it already existed.
     """
     if namespace not in NAMESPACE_REGISTRY:

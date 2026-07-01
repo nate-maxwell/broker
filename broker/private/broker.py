@@ -1,19 +1,18 @@
 """
 # Primary Event Broker
 
-Herein is the event broker system itself as a module class to create a
-protective closure around the subscriber namespace table.
+Herein is the event broker system itself.
 
-Function stubs exist in the stubs file for static type checkers to validate
+Function stubs exist in the stub file for static type checkers to validate
 correct calls.
 
 For a complete breakdown of broker functionality, read the project readme.
 """
 
 # Remember to update functions in the stub file so static type checkers
-# and intellisense can receive accurate feedback!
+# and IntelliSense can receive accurate feedback!
 
-import asyncio
+import inspect
 from typing import Any
 from typing import Optional
 
@@ -68,7 +67,7 @@ class Broker(BrokerIntrospectionMixin):
     # ---Constants---
     version_major = 1
     version_minor = 11
-    version_patch = 8
+    version_patch = 9
     __version__ = f"{version_major}.{version_minor}.{version_patch}"
     """Current broker version in {major}.{minor}.{path} format."""
 
@@ -175,7 +174,7 @@ class Broker(BrokerIntrospectionMixin):
             subscriber is registered. Notify emits the used namespace.
         """
         callback_params = function.get_callback_params(callback)
-        is_async = asyncio.iscoroutinefunction(callback)
+        is_async = inspect.iscoroutinefunction(callback)
 
         weak_callback = function.make_weak_ref(
             callback=callback,
