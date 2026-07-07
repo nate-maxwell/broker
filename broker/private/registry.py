@@ -5,20 +5,35 @@ A reimport protection clause exists at the top of the file to prevent the
 subscriber table from being lost on import.
 """
 
+import os
 import sys
 from typing import DefaultDict
 
 from broker import namespaces
 from broker import subscriber
 
+_ENV_REIMPORT_GUARD = "BROKER_REIMPORT_GUARD"
+_ENV_GUARD_T = "true"
+_ENV_GUARD_F = "false"
+os.environ[_ENV_REIMPORT_GUARD] = _ENV_GUARD_T
+
 # -----------------------------------------------------------------------------
-_existing = sys.modules.get("broker.private.registry")
-if _existing is not None and hasattr(_existing, "_REGISTRY_IMPORT_GUARD"):
-    raise ImportError(
-        "Module 'broker.private.registry' has already been imported and cannot be reloaded. "
-        "Subscriber data would be lost. "
-        "Restart your Python session to reimport."
-    )
+
+
+def check_reimport_guard() -> None:
+    if os.environ[_ENV_REIMPORT_GUARD] == _ENV_GUARD_F:
+        return
+
+    _existing = sys.modules.get("broker.private.registry")
+    if _existing is not None and hasattr(_existing, "_REGISTRY_IMPORT_GUARD"):
+        raise ImportError(
+            "Module 'broker.private.registry' has already been imported and cannot be reloaded. "
+            "Subscriber data would be lost. "
+            "Restart your Python session to reimport."
+        )
+
+
+check_reimport_guard()
 
 _REGISTRY_IMPORT_GUARD = True
 # -----------------------------------------------------------------------------
