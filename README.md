@@ -154,13 +154,23 @@ More info can be found [here](./docs/EventNotifies.md).
 
 ## Reimport Protection
 
-The broker is a singleton with reimport safeguards. Reimporting raises
-`ImportError` to prevent data loss:
+The broker's internal registry is protected against reimporting. If
+`broker.private.registry` has already been imported, a second import or reload
+raises `ImportError` to prevent the subscriber table from being cleared:
 
 ```python
-import broker
 import importlib
-importlib.reload(broker)  # Raises ImportError
+import broker.private.registry as registry
+
+importlib.reload(registry)  # Raises ImportError
+```
+
+To bypass the guard in controlled environments, set:
+
+```python
+import os
+
+os.environ["BROKER_REIMPORT_GUARD"] = "false"
 ```
 
 This protects the global namespace/subscriber table from being accidentally cleared.

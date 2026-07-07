@@ -8,8 +8,6 @@ queries, statistics, and serialization.
 Intended to be composed into the Broker class only. Not for direct use.
 """
 
-from __future__ import annotations
-
 import json
 import os
 from typing import Callable

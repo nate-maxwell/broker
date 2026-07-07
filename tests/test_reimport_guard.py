@@ -1,13 +1,24 @@
+import importlib
+
 import pytest
 
 
 def test_reimport_guard() -> None:
     """
-    Test that reimporting the broker module results in an ImportError,
-    preventing developers form reimporting the module.
+    Test that the guard rejects a second import once the module is loaded.
     """
-    import importlib
-    import broker.private.registry
+    import broker
+
+    registry = importlib.import_module("broker.private.registry")
 
     with pytest.raises(ImportError):
-        importlib.reload(broker.private.registry)
+        registry.check_reimport_guard()
+
+
+def test_reimport_guard_can_be_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
+    import broker
+
+    registry = importlib.import_module("broker.private.registry")
+    monkeypatch.setenv("BROKER_REIMPORT_GUARD", "false")
+
+    registry.check_reimport_guard()
