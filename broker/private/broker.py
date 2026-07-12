@@ -67,7 +67,7 @@ class Broker(BrokerIntrospectionMixin):
     # ---Version---
     version_major = 1
     version_minor = 11
-    version_patch = 12
+    version_patch = 13
     __version__ = f"{version_major}.{version_minor}.{version_patch}"
     """Current broker version in {major}.{minor}.{patch} format."""
 
