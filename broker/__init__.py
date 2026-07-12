@@ -10,19 +10,13 @@
 #     broker.register_subscriber('file.saved', my_handler)
 #
 # All public functions, types, and constants are documented in __init__.pyi
-# for static analysis tools and IDE intellisense.
+# for static analysis tools and IDE IntelliSense.
 
 # noinspection PyProtectedMember
 from broker.private.broker import Broker as _Broker
 
 _instance = _Broker()
 paused = _instance.paused
-
-# -----Version---------------------------------------------------------------
-version_major = 1
-version_minor = 11
-version_patch = 12
-__version__ = f"{version_major}.{version_minor}.{version_patch}"
 
 
 def __getattr__(name: str) -> object:

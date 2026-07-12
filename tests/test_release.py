@@ -26,10 +26,8 @@ version = "2.4.6"
 def test_update_versions_syncs_targets(tmp_path, monkeypatch):
     yaml_path = tmp_path / "package.yaml"
     private_broker_path = tmp_path / "broker/private/broker.py"
-    public_init_path = tmp_path / "broker/__init__.py"
 
     private_broker_path.parent.mkdir(parents=True, exist_ok=True)
-    public_init_path.parent.mkdir(parents=True, exist_ok=True)
 
     yaml_path.write_text("name: broker\nversion: 1.2.3\n", encoding="utf-8")
     private_broker_path.write_text(
@@ -44,24 +42,9 @@ def test_update_versions_syncs_targets(tmp_path, monkeypatch):
         + "\n",
         encoding="utf-8",
     )
-    public_init_path.write_text(
-        "\n".join(
-            [
-                "_instance = object()",
-                "paused = None",
-                "version_major = 1",
-                "version_minor = 2",
-                "version_patch = 3",
-                '__version__ = f"{version_major}.{version_minor}.{version_patch}"',
-            ]
-        )
-        + "\n",
-        encoding="utf-8",
-    )
 
     monkeypatch.setattr(release, "PACKAGE_YAML_PATH", yaml_path)
     monkeypatch.setattr(release, "PRIVATE_BROKER_PATH", private_broker_path)
-    monkeypatch.setattr(release, "PUBLIC_INIT_PATH", public_init_path)
 
     release.update_versions((4, 5, 6))
 
@@ -69,9 +52,6 @@ def test_update_versions_syncs_targets(tmp_path, monkeypatch):
     assert "version_major = 4" in private_broker_path.read_text(encoding="utf-8")
     assert "version_minor = 5" in private_broker_path.read_text(encoding="utf-8")
     assert "version_patch = 6" in private_broker_path.read_text(encoding="utf-8")
-    assert "version_major = 4" in public_init_path.read_text(encoding="utf-8")
-    assert "version_minor = 5" in public_init_path.read_text(encoding="utf-8")
-    assert "version_patch = 6" in public_init_path.read_text(encoding="utf-8")
 
 
 def test_update_python_version_preserves_indentation(tmp_path, monkeypatch):

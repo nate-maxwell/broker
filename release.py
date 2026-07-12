@@ -9,7 +9,6 @@ ROOT = Path(__file__).parent
 TOML_PATH = ROOT / "pyproject.toml"
 PACKAGE_YAML_PATH = ROOT / "package.yaml"
 PRIVATE_BROKER_PATH = ROOT / "broker/private/broker.py"
-PUBLIC_INIT_PATH = ROOT / "broker/__init__.py"
 
 VERSION_PATTERN = re.compile(r'^version\s*=\s*["\'](\d+\.\d+\.\d+)["\']\s*$', re.M)
 
@@ -60,12 +59,11 @@ def update_python_version(new_version: tuple[int, int, int]) -> None:
         (r"^(\s*)version_patch\s*=\s*\d+\s*$", rf"\1version_patch = {patch}"),
     ]
 
-    for path in (PRIVATE_BROKER_PATH, PUBLIC_INIT_PATH):
-        replace_version_fields(path, replacements)
-        print(f"Updated {path}:")
-        print(f"  version_major = {major}")
-        print(f"  version_minor = {minor}")
-        print(f"  version_patch = {patch}")
+    replace_version_fields(PRIVATE_BROKER_PATH, replacements)
+    print(f"Updated {PRIVATE_BROKER_PATH}:")
+    print(f"  version_major = {major}")
+    print(f"  version_minor = {minor}")
+    print(f"  version_patch = {patch}")
 
 
 def update_yaml_version(new_version: tuple[int, int, int]) -> None:
