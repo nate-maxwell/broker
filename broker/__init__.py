@@ -21,7 +21,7 @@ paused = _instance.paused
 # -----Version---------------------------------------------------------------
 version_major = 1
 version_minor = 11
-version_patch = 11
+version_patch = 12
 __version__ = f"{version_major}.{version_minor}.{version_patch}"
 
 
