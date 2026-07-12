@@ -26,17 +26,9 @@ def format_version(version: tuple[int, int, int]) -> str:
     return ".".join(str(part) for part in version)
 
 
-def read_text(path: Path) -> str:
-    return path.read_text(encoding="utf-8")
-
-
-def write_text(path: Path, content: str) -> None:
-    path.write_text(content, encoding="utf-8")
-
-
 def get_current_version_from_toml() -> tuple[int, int, int]:
     """Extract the current version from ``pyproject.toml``."""
-    match = VERSION_PATTERN.search(read_text(TOML_PATH))
+    match = VERSION_PATTERN.search(TOML_PATH.read_text(encoding="utf-8"))
     if not match:
         raise ValueError("No version field found in pyproject.toml")
     return parse_version(match.group(1))
@@ -48,7 +40,7 @@ def get_current_version_string() -> str:
 
 
 def replace_version_fields(path: Path, replacements: list[tuple[str, str]]) -> None:
-    content = read_text(path)
+    content = path.read_text(encoding="utf-8")
     new_content = content
 
     for pattern, replacement in replacements:
@@ -56,7 +48,7 @@ def replace_version_fields(path: Path, replacements: list[tuple[str, str]]) -> N
         if count == 0:
             raise ValueError(f"Pattern not found in {path}: {pattern}")
 
-    write_text(path, new_content)
+    path.write_text(new_content, encoding="utf-8")
 
 
 def update_python_version(new_version: tuple[int, int, int]) -> None:
@@ -78,7 +70,7 @@ def update_python_version(new_version: tuple[int, int, int]) -> None:
 
 def update_yaml_version(new_version: tuple[int, int, int]) -> None:
     """Update version field in package.yaml file."""
-    content = read_text(PACKAGE_YAML_PATH)
+    content = PACKAGE_YAML_PATH.read_text(encoding="utf-8")
     version_str = format_version(new_version)
 
     new_content, count = re.subn(
@@ -91,7 +83,7 @@ def update_yaml_version(new_version: tuple[int, int, int]) -> None:
     if count == 0:
         raise ValueError("No version field found in package.yaml")
 
-    write_text(PACKAGE_YAML_PATH, new_content)
+    PACKAGE_YAML_PATH.write_text(new_content, encoding="utf-8")
     print(f"Updated {PACKAGE_YAML_PATH}:")
     print(f"  version: {version_str}")
 

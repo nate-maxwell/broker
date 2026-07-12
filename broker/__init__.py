@@ -19,9 +19,9 @@ _instance = _Broker()
 paused = _instance.paused
 
 # -----Version---------------------------------------------------------------
-version_major = 1
-version_minor = 11
-version_patch = 11
+version_major = 7
+version_minor = 8
+version_patch = 9
 __version__ = f"{version_major}.{version_minor}.{version_patch}"
 
 
