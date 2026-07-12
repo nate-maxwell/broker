@@ -18,6 +18,12 @@ from broker.private.broker import Broker as _Broker
 _instance = _Broker()
 paused = _instance.paused
 
+# -----Version---------------------------------------------------------------
+version_major = 1
+version_minor = 11
+version_patch = 9
+__version__ = f"{version_major}.{version_minor}.{version_patch}"
+
 
 def __getattr__(name: str) -> object:
     return getattr(_instance, name)

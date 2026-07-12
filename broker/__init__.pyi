@@ -41,8 +41,27 @@ BROKER_ON_EMIT_ALL: str
 BROKER_ON_NAMESPACE_CREATED: str
 BROKER_ON_NAMESPACE_DELETED: str
 
+version_major: int
+version_minor: int
+version_patch: int
+
 __version__: str
-"""Current broker version in {major}.{minor}.{path} format."""
+"""Current broker version in {major}.{minor}.{patch} format."""
+
+# -----Misc Control Flow-------------------------------------------------------
+
+paused: PausedContext
+"""Context manager that pauses event emission for the duration of the block."""
+
+_paused: int
+"""
+When True, the broker will not pass signals on to subscribers through emit or
+emit_async.
+Primarily toggled through context managers. If the value is above 0 then the
+broker is paused
+"""
+
+# -----Exceptions---------------------------------------------------------------
 
 class SignatureMismatchError(Exception):
     """Raised when callback signatures don't match for a namespace."""
@@ -571,16 +590,3 @@ def get_staged_count(namespace: Optional[str] = None) -> int:
     Returns:
         int: Number of staged events.
     """
-
-# -----Misc Control Flow-------------------------------------------------------
-
-paused: PausedContext
-"""Context manager that pauses event emission for the duration of the block."""
-
-_paused: int
-"""
-When True, the broker will not pass signals on to subscribers through emit or
-emit_async.
-Primarily toggled through context managers. If the value is above 0 then the
-broker is paused
-"""

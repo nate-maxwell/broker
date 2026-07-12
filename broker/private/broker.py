@@ -64,12 +64,12 @@ class Broker(BrokerIntrospectionMixin):
     BROKER_ON_NAMESPACE_CREATED = f"{_NOTIFY_NAMESPACE_ROOT}namespace.created"
     BROKER_ON_NAMESPACE_DELETED = f"{_NOTIFY_NAMESPACE_ROOT}namespace.deleted"
 
-    # ---Constants---
+    # ---Version---
     version_major = 1
     version_minor = 11
     version_patch = 9
     __version__ = f"{version_major}.{version_minor}.{version_patch}"
-    """Current broker version in {major}.{minor}.{path} format."""
+    """Current broker version in {major}.{minor}.{patch} format."""
 
     # -----Runtime Closures----------------------------------------------------
     # ---Exceptions---
@@ -104,8 +104,8 @@ class Broker(BrokerIntrospectionMixin):
         
         This is tracked as an integer instead of a bool so that nested context
         managers will not create an invalid state for outer context managers.
-        i.e. if a with block nested in another exists, the __exit__ may create
-        an invalid state that the outer with block will use before exiting.
+        i.e. if a `with` block nested in another exists, the __exit__ may create
+        an invalid state that the outer `with` block will use before exiting.
         """
 
         # -----Notifies-----

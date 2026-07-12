@@ -1,0 +1,58 @@
+name: Release Version
+
+on:
+  push:
+    branches: [ main ]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: tag-release-main
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          architecture: 'x64'
+
+      - name: Sync version files
+        shell: pwsh
+        run: |
+          python release.py
+
+      - name: Commit and tag release
+        shell: pwsh
+        run: |
+          $version = (python release.py --print-version).Trim()
+          $tag = "v$version"
+
+          git fetch --tags --force
+          $existingTag = git tag --list $tag
+          if ($existingTag) {
+            Write-Host "Tag $tag already exists."
+            exit 0
+          }
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package.yaml broker/private/broker.py broker/__init__.py
+          git diff --cached --quiet
+          if ($LASTEXITCODE -ne 0) {
+            git commit -m "chore(release): $tag"
+          } else {
+            Write-Host "No version changes to commit."
+          }
+          git tag -a $tag -m "Release $tag"
+          git push origin HEAD:main --follow-tags
