@@ -63,9 +63,9 @@ def update_python_version(new_version: tuple[int, int, int]) -> None:
     """Update version constants in Python files."""
     major, minor, patch = new_version
     replacements = [
-        (r"^version_major\s*=\s*\d+\s*$", f"version_major = {major}"),
-        (r"^version_minor\s*=\s*\d+\s*$", f"version_minor = {minor}"),
-        (r"^version_patch\s*=\s*\d+\s*$", f"version_patch = {patch}"),
+        (r"^(\s*)version_major\s*=\s*\d+\s*$", rf"\1version_major = {major}"),
+        (r"^(\s*)version_minor\s*=\s*\d+\s*$", rf"\1version_minor = {minor}"),
+        (r"^(\s*)version_patch\s*=\s*\d+\s*$", rf"\1version_patch = {patch}"),
     ]
 
     for path in (PRIVATE_BROKER_PATH, PUBLIC_INIT_PATH):
