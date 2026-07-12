@@ -72,3 +72,30 @@ def test_update_versions_syncs_targets(tmp_path, monkeypatch):
     assert "version_major = 4" in public_init_path.read_text(encoding="utf-8")
     assert "version_minor = 5" in public_init_path.read_text(encoding="utf-8")
     assert "version_patch = 6" in public_init_path.read_text(encoding="utf-8")
+
+
+def test_update_python_version_preserves_indentation(tmp_path, monkeypatch):
+    private_broker_path = tmp_path / "broker/private/broker.py"
+    private_broker_path.parent.mkdir(parents=True, exist_ok=True)
+    private_broker_path.write_text(
+        "\n".join(
+            [
+                "class Broker:",
+                "    version_major = 1",
+                "    version_minor = 2",
+                "    version_patch = 3",
+                '    __version__ = f"{version_major}.{version_minor}.{version_patch}"',
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(release, "PRIVATE_BROKER_PATH", private_broker_path)
+
+    release.update_python_version((7, 8, 9))
+
+    content = private_broker_path.read_text(encoding="utf-8")
+    assert "    version_major = 7" in content
+    assert "    version_minor = 8" in content
+    assert "    version_patch = 9" in content
