@@ -10,6 +10,6 @@ from broker.transformer import *
 
 version_major = 1
 version_minor = 14
-version_patch = 1
+version_patch = 2
 __version__ = f"{version_major}.{version_minor}.{version_patch}"
 """Current broker version in {major}.{minor}.{patch} format."""
