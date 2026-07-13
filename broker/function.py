@@ -1,9 +1,6 @@
 """
 Internal utility functions for the event broker.
 
-Provides three low-level utilities used during subscriber registration and
-event emission:
-
 Not intended for direct use outside of broker/private/.
 """
 

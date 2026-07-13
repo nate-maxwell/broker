@@ -1,23 +1,15 @@
-# Primary user interface for the broker package.
-#
-# The broker's implementation lives in broker/private/ and is not intended
-# to be imported directly. This file is the sole public interface — all
-# functionality is accessible through the broker module namespace:
-#
-#     import broker
-#
-#     broker.emit('file.saved', filename='test.exr')
-#     broker.register_subscriber('file.saved', my_handler)
-#
-# All public functions, types, and constants are documented in __init__.pyi
-# for static analysis tools and IDE IntelliSense.
+from broker.exceptions import *
+from broker.function import *
+from broker.handlers import *
+from broker.introspection import *
+from broker.namespaces import *
+from broker.paused import *
+from broker.routing import *
+from broker.subscriber import *
+from broker.transformer import *
 
-# noinspection PyProtectedMember
-from broker.private.broker import Broker as _Broker
-
-_instance = _Broker()
-paused = _instance.paused
-
-
-def __getattr__(name: str) -> object:
-    return getattr(_instance, name)
+version_major = 1
+version_minor = 11
+version_patch = 13
+__version__ = f"{version_major}.{version_minor}.{version_patch}"
+"""Current broker version in {major}.{minor}.{patch} format."""

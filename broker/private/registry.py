@@ -7,17 +7,20 @@ subscriber table from being lost on import.
 
 import os
 import sys
+from dataclasses import dataclass
 from typing import DefaultDict
+from typing import Optional
+from typing import TYPE_CHECKING
 
-from broker import namespaces
-from broker import subscriber
+if TYPE_CHECKING:
+    from broker.subscriber import Subscriber
+    from broker.transformer import Transformer
 
+# -----------------------------------------------------------------------------
 _ENV_REIMPORT_GUARD = "BROKER_REIMPORT_GUARD"
 _ENV_GUARD_T = "true"
 _ENV_GUARD_F = "false"
 os.environ[_ENV_REIMPORT_GUARD] = _ENV_GUARD_T
-
-# -----------------------------------------------------------------------------
 
 
 def check_reimport_guard() -> None:
@@ -29,7 +32,7 @@ def check_reimport_guard() -> None:
         raise ImportError(
             "Module 'broker.private.registry' has already been imported and cannot be reloaded. "
             "Subscriber data would be lost. "
-            "Restart your Python session to reimport."
+            "Restart your Python session, or set 'BROKER_REIMPORT_GUARD' environ var to 'false', to reimport."
         )
 
 
@@ -39,7 +42,21 @@ _REGISTRY_IMPORT_GUARD = True
 # -----------------------------------------------------------------------------
 
 
-NAMESPACE_REGISTRY: dict[str, namespaces.NamespaceEntry] = {}
+@dataclass
+class NamespaceEntry(object):
+    """Entry for a namespace in the unified registry."""
+
+    subscribers: list["Subscriber"]
+    """All subscribers registered to the namespace."""
+
+    transformers: list["Transformer"]
+    """All transformers registered to the namespace."""
+
+    signature: Optional[set[str]]
+    """The kwargs to validate incoming data against in this namespace."""
+
+
+NAMESPACE_REGISTRY: dict[str, NamespaceEntry] = {}
 """
 Global namespace registry.
 Each namespace tracks its subscribers, transformers, and expected signature.
@@ -84,13 +101,13 @@ def ensure_namespace_exists(namespace: str) -> bool:
     Returns True if the namespace was added, False if it already existed.
     """
     if namespace not in NAMESPACE_REGISTRY:
-        NAMESPACE_REGISTRY[namespace] = namespaces.NamespaceEntry([], [], None)
+        NAMESPACE_REGISTRY[namespace] = NamespaceEntry([], [], None)
         return True
 
     return False
 
 
-def get_sorted_subscribers(namespace: str) -> list[tuple[str, subscriber.Subscriber]]:
+def get_sorted_subscribers(namespace: str) -> list[tuple[str, "Subscriber"]]:
     """Get all live subscribers matching namespace, sorted by priority descending."""
     result = []
     for reg_namespace, entry in NAMESPACE_REGISTRY.items():
