@@ -86,12 +86,15 @@ broker.clear_staged()  # discarded, nothing dispatched
 
 ### Pausing Emission
 
-The broker can be paused using the `broker.paused()` context manager. While
-paused, all calls to `emit()` and `emit_async()` are suppressed silently.
+The broker can be paused using the `broker.paused.PausedContext()` context manager.
+While paused, all calls to `emit()` and `emit_async()` are suppressed silently.
 Emission resumes automatically when the context exits, even if an exception
 is raised.
+
 ```python
-with broker.paused():
+import broker
+
+with broker.paused.PausedContext():
     broker.emit('file.saved', filename='test.exr')  # suppressed
     await broker.emit_async('render.done', frame=42)  # suppressed
 

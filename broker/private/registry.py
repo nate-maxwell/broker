@@ -3,6 +3,15 @@ Herein is the namespace table and staged emission buffer.
 
 A reimport protection clause exists at the top of the file to prevent the
 subscriber table from being lost on import.
+
+Defines the NamespaceEntry dataclass that represents a unified namespace in the
+broker's internal registry. Each namespace entry tracks both subscribers and
+transformers registered to that namespace, along with the expected parameter
+signature for validation.
+
+A namespace exists in the registry when it has at least one subscriber OR
+transformer registered, except very briefly when registering a transformer or
+subscriber to a newly created namespace.
 """
 
 import os

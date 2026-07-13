@@ -1,14 +1,8 @@
 """
-Namespace registry data structures for the event broker.
+Internal namespaces used by the broker.
 
-Defines the NamespaceEntry dataclass that represents a unified namespace in the
-broker's internal registry. Each namespace entry tracks both subscribers and
-transformers registered to that namespace, along with the expected parameter
-signature for validation.
-
-A namespace exists in the registry when it has at least one subscriber OR
-transformer registered, except very briefly when registering a transformer or
-subscriber to a newly created namespace.
+The exact namespaces used by the introspection functions, public for all users
+to use.
 """
 
 from broker import routing

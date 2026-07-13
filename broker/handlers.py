@@ -1,11 +1,14 @@
 """
 Exception handling utilities for the event broker.
 
-Provides exception handler functions and type definitions for managing errors
-that occur during subscriber callback execution. Includes built-in handlers for
-common patterns: stopping on error with logging (stop_on_exception_handler),
-silently continuing (silent_exception_handler), and collecting exceptions for
-batch processing (collecting_exception_handler).
+Provides exception handler functions for managing errors that occur during
+subscriber callback execution.
+
+Includes built-in handlers for common patterns:
+stopping on error with logging (stop_and_log_[callback]_exceptions),
+continuing on error with logging (log_and_continue_[callback]_exception)
+silently continuing (silent_[callback]_exception),
+and collecting exceptions for batch processing (collect_[callback]_exception).
 """
 
 import logging
