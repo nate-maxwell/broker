@@ -1,7 +1,7 @@
 """
 Internal utility functions for the event broker.
 
-Not intended for direct use outside of broker/private/.
+Not intended for direct use, but may be of some utility to users.
 """
 
 import inspect

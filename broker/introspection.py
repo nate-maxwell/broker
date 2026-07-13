@@ -1,13 +1,8 @@
 """
-Introspection mixin for the event broker.
-
-Provides RegistryInspector class containing methods for inspecting or representing
-the contents or state of the registry.
+Introspection functions for observer or querying the broker.
 
 Covers subscriber and transformer inspection, namespace queries, statistics,
 and serialization.
-
-Intended to be composed into the Broker class only. Not for direct use.
 """
 
 import json
