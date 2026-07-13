@@ -1,4 +1,4 @@
-"""Helper for syncing version files from ``pyproject.toml``."""
+"""Helper for syncing version files from ``broker/__init__.py``."""
 
 import re
 import sys
@@ -6,11 +6,12 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).parent
-TOML_PATH = ROOT / "pyproject.toml"
 PACKAGE_YAML_PATH = ROOT / "package.yaml"
-PRIVATE_BROKER_PATH = ROOT / "broker/private/broker.py"
+BROKER_INIT_PATH = ROOT / "broker/__init__.py"
 
-VERSION_PATTERN = re.compile(r'^version\s*=\s*["\'](\d+\.\d+\.\d+)["\']\s*$', re.M)
+VERSION_MAJOR_PATTERN = re.compile(r"^version_major\s*=\s*(\d+)\s*$", re.M)
+VERSION_MINOR_PATTERN = re.compile(r"^version_minor\s*=\s*(\d+)\s*$", re.M)
+VERSION_PATCH_PATTERN = re.compile(r"^version_patch\s*=\s*(\d+)\s*$", re.M)
 
 
 def parse_version(version_str: str) -> tuple[int, int, int]:
@@ -25,17 +26,24 @@ def format_version(version: tuple[int, int, int]) -> str:
     return ".".join(str(part) for part in version)
 
 
-def get_current_version_from_toml() -> tuple[int, int, int]:
-    """Extract the current version from ``pyproject.toml``."""
-    match = VERSION_PATTERN.search(TOML_PATH.read_text(encoding="utf-8"))
-    if not match:
-        raise ValueError("No version field found in pyproject.toml")
-    return parse_version(match.group(1))
+def get_current_version_from_python() -> tuple[int, int, int]:
+    """Extract the current version from ``broker/__init__.py``."""
+    content = BROKER_INIT_PATH.read_text(encoding="utf-8")
+
+    major_match = VERSION_MAJOR_PATTERN.search(content)
+    minor_match = VERSION_MINOR_PATTERN.search(content)
+    patch_match = VERSION_PATCH_PATTERN.search(content)
+    if not (major_match and minor_match and patch_match):
+        raise ValueError("No version fields found in broker/__init__.py")
+
+    return parse_version(
+        f"{major_match.group(1)}.{minor_match.group(1)}.{patch_match.group(1)}"
+    )
 
 
 def get_current_version_string() -> str:
-    """Return the version currently recorded in ``pyproject.toml``."""
-    return format_version(get_current_version_from_toml())
+    """Return the version currently recorded in ``broker/__init__.py``."""
+    return format_version(get_current_version_from_python())
 
 
 def replace_version_fields(path: Path, replacements: list[tuple[str, str]]) -> None:
@@ -59,8 +67,8 @@ def update_python_version(new_version: tuple[int, int, int]) -> None:
         (r"^(\s*)version_patch\s*=\s*\d+\s*$", rf"\1version_patch = {patch}"),
     ]
 
-    replace_version_fields(PRIVATE_BROKER_PATH, replacements)
-    print(f"Updated {PRIVATE_BROKER_PATH}:")
+    replace_version_fields(BROKER_INIT_PATH, replacements)
+    print(f"Updated {BROKER_INIT_PATH}:")
     print(f"  version_major = {major}")
     print(f"  version_minor = {minor}")
     print(f"  version_patch = {patch}")
@@ -97,7 +105,7 @@ def main() -> int:
         print(get_current_version_string())
         return 0
 
-    current_version = get_current_version_from_toml()
+    current_version = get_current_version_from_python()
     update_versions(current_version)
     print(f"Synced version: {format_version(current_version)}")
     return 0

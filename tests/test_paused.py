@@ -5,6 +5,7 @@ Unit tests for the PausedContext context manager.
 import pytest
 
 import broker
+import broker.routing
 
 
 @pytest.fixture(autouse=True)
@@ -26,7 +27,7 @@ def test_emit_suppressed_while_paused():
 
     broker.register_subscriber("test.event", handler)
 
-    with broker.paused():
+    with broker.paused.PausedContext():
         broker.emit("test.event", data="hello")
 
     assert called == []
@@ -40,7 +41,7 @@ def test_emit_resumes_after_context_exits():
 
     broker.register_subscriber("test.event", handler)
 
-    with broker.paused():
+    with broker.paused.PausedContext():
         broker.emit("test.event", data="suppressed")
 
     broker.emit("test.event", data="delivered")
@@ -49,19 +50,19 @@ def test_emit_resumes_after_context_exits():
 
 
 def test_paused_counter_zero_by_default():
-    assert broker._paused == 0
+    assert broker.routing._paused == 0
 
 
 def test_paused_counter_increments_on_enter():
-    with broker.paused():
-        assert broker._paused == 1
+    with broker.paused.PausedContext():
+        assert broker.routing._paused == 1
 
 
 def test_paused_counter_decrements_on_exit():
-    with broker.paused():
+    with broker.paused.PausedContext():
         pass
 
-    assert broker._paused == 0
+    assert broker.routing._paused == 0
 
 
 # -----Async-------------------------------------------------------------------
@@ -76,7 +77,7 @@ async def test_emit_async_suppressed_while_paused():
 
     broker.register_subscriber("test.event", handler)
 
-    with broker.paused():
+    with broker.paused.PausedContext():
         await broker.emit_async("test.event", data="hello")
 
     assert called == []
@@ -91,7 +92,7 @@ async def test_emit_async_resumes_after_context_exits():
 
     broker.register_subscriber("test.event", handler)
 
-    with broker.paused():
+    with broker.paused.PausedContext():
         await broker.emit_async("test.event", data="suppressed")
 
     await broker.emit_async("test.event", data="delivered")
@@ -104,12 +105,12 @@ async def test_emit_async_resumes_after_context_exits():
 
 def test_paused_counter_restored_after_exception():
     try:
-        with broker.paused():
+        with broker.paused.PausedContext():
             raise RuntimeError("something went wrong")
     except RuntimeError:
         pass
 
-    assert broker._paused == 0
+    assert broker.routing._paused == 0
 
 
 def test_emit_resumes_after_exception_in_context():
@@ -121,7 +122,7 @@ def test_emit_resumes_after_exception_in_context():
     broker.register_subscriber("test.event", handler)
 
     try:
-        with broker.paused():
+        with broker.paused.PausedContext():
             raise RuntimeError("something went wrong")
     except RuntimeError:
         pass
@@ -133,7 +134,7 @@ def test_emit_resumes_after_exception_in_context():
 
 def test_exception_propagates_out_of_context():
     with pytest.raises(RuntimeError):
-        with broker.paused():
+        with broker.paused.PausedContext():
             raise RuntimeError("something went wrong")
 
 
@@ -141,24 +142,24 @@ def test_exception_propagates_out_of_context():
 
 
 def test_nested_contexts_increment_counter():
-    with broker.paused():
-        with broker.paused():
-            assert broker._paused == 2
+    with broker.paused.PausedContext():
+        with broker.paused.PausedContext():
+            assert broker.routing._paused == 2
 
 
 def test_nested_inner_exit_decrements_counter():
-    with broker.paused():
-        with broker.paused():
+    with broker.paused.PausedContext():
+        with broker.paused.PausedContext():
             pass
-        assert broker._paused == 1
+        assert broker.routing._paused == 1
 
 
 def test_nested_outer_exit_decrements_counter_to_zero():
-    with broker.paused():
-        with broker.paused():
+    with broker.paused.PausedContext():
+        with broker.paused.PausedContext():
             pass
 
-    assert broker._paused == 0
+    assert broker.routing._paused == 0
 
 
 def test_nested_emit_suppressed_while_inner_active():
@@ -169,8 +170,8 @@ def test_nested_emit_suppressed_while_inner_active():
 
     broker.register_subscriber("test.event", handler)
 
-    with broker.paused():
-        with broker.paused():
+    with broker.paused.PausedContext():
+        with broker.paused.PausedContext():
             broker.emit("test.event", data="hello")
 
     assert called == []
@@ -185,8 +186,8 @@ def test_nested_emit_suppressed_after_inner_exits():
 
     broker.register_subscriber("test.event", handler)
 
-    with broker.paused():
-        with broker.paused():
+    with broker.paused.PausedContext():
+        with broker.paused.PausedContext():
             pass
         broker.emit("test.event", data="still suppressed")
 
@@ -203,8 +204,8 @@ def test_nested_emit_resumes_after_all_contexts_exit():
 
     broker.register_subscriber("test.event", handler)
 
-    with broker.paused():
-        with broker.paused():
+    with broker.paused.PausedContext():
+        with broker.paused.PausedContext():
             pass
 
     broker.emit("test.event", data="delivered")
@@ -215,25 +216,25 @@ def test_nested_emit_resumes_after_all_contexts_exit():
 
 def test_nested_exception_in_inner_restores_outer_depth():
     try:
-        with broker.paused():
+        with broker.paused.PausedContext():
             try:
-                with broker.paused():
+                with broker.paused.PausedContext():
                     raise RuntimeError("inner error")
             except RuntimeError:
                 pass
-            assert broker._paused == 1
+            assert broker.routing._paused == 1
     except RuntimeError:
         pass
 
 
 def test_deeply_nested_counter():
-    with broker.paused():
-        with broker.paused():
-            with broker.paused():
-                assert broker._paused == 3
-        assert broker._paused == 1
+    with broker.paused.PausedContext():
+        with broker.paused.PausedContext():
+            with broker.paused.PausedContext():
+                assert broker.routing._paused == 3
+        assert broker.routing._paused == 1
 
-    assert broker._paused == 0
+    assert broker.routing._paused == 0
 
 
 # -----Isolation---------------------------------------------------------------
@@ -247,7 +248,7 @@ def test_paused_does_not_affect_staging():
 
     broker.register_subscriber("test.event", handler)
 
-    with broker.paused():
+    with broker.paused.PausedContext():
         broker.stage("test.event", data="hello")
 
     broker.emit_staged()
@@ -267,7 +268,7 @@ def test_emit_resumes_across_all_namespaces_after_exit():
     broker.register_subscriber("test.one", handler_one)
     broker.register_subscriber("test.two", handler_two)
 
-    with broker.paused():
+    with broker.paused.PausedContext():
         broker.emit("test.one", data="suppressed")
         broker.emit("test.two", data="suppressed")
 

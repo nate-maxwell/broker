@@ -10,29 +10,15 @@ batch processing (collecting_exception_handler).
 
 import logging
 import sys
-from typing import Any
 from typing import Callable
-from typing import Optional
+from typing import TYPE_CHECKING
 
-from broker import subscriber
-
+if TYPE_CHECKING:
+    from broker.subscriber import SUBSCRIBER
+    from broker.transformer import TRANSFORMER
 
 logger = logging.getLogger(__name__)
 
-
-SUBSCRIPTION_EXCEPTION_HANDLER = Callable[[subscriber.SUBSCRIBER, str, Exception], bool]
-"""
-Signature for exception handlers.
-
-Exception handlers receive the failing callback, namespace, and exception, then
-return True to stop delivery or False to continue to remaining subscribers.
-"""
-
-TRANSFORMER = Callable[[str, dict[str, Any]], Optional[dict[str, Any]]]
-"""Transformer function type."""
-
-TRANSFORMER_EXCEPTION_HANDLER = Callable[[TRANSFORMER, str, Exception], bool]
-"""Signature for transformer exception handlers."""
 
 STOP = True
 CONTINUE = False
@@ -55,7 +41,7 @@ def get_callable_name(callable_: Callable) -> str:
 
 
 def stop_and_log_subscriber_exception(
-    callback: subscriber.SUBSCRIBER, namespace: str, exception: Exception
+    callback: "SUBSCRIBER", namespace: str, exception: Exception
 ) -> bool:
     """
     Handler that stops message delivery and logs the raised exception before
@@ -73,7 +59,7 @@ def stop_and_log_subscriber_exception(
 
 
 def log_and_continue_subscriber_exception(
-    callback: subscriber.SUBSCRIBER, namespace: str, exception: Exception
+    callback: "SUBSCRIBER", namespace: str, exception: Exception
 ) -> bool:
     """Log subscriber errors but continue processing."""
     logger.warning(
@@ -83,9 +69,7 @@ def log_and_continue_subscriber_exception(
     return CONTINUE
 
 
-def silent_subscriber_exception(
-    _: subscriber.SUBSCRIBER, __: str, ___: Exception
-) -> bool:
+def silent_subscriber_exception(_: "SUBSCRIBER", __: str, ___: Exception) -> bool:
     """Silently ignore all exceptions."""
     return CONTINUE
 
@@ -94,7 +78,7 @@ exceptions_caught = []
 
 
 def collect_subscriber_exception(
-    callback: subscriber.SUBSCRIBER, namespace: str, exception: Exception
+    callback: "SUBSCRIBER", namespace: str, exception: Exception
 ) -> bool:
     """
     Collect exceptions for batch processing.
@@ -118,7 +102,7 @@ def collect_subscriber_exception(
 
 
 def stop_and_log_transformer_exception(
-    transformer: TRANSFORMER, namespace: str, exception: Exception
+    transformer: "TRANSFORMER", namespace: str, exception: Exception
 ) -> bool:
     """Handler that stops transformer chain and logs the error."""
     logger.error(
@@ -132,7 +116,7 @@ def stop_and_log_transformer_exception(
 
 
 def log_and_continue_transformer_exception(
-    transformer: TRANSFORMER, namespace: str, exception: Exception
+    transformer: "TRANSFORMER", namespace: str, exception: Exception
 ) -> bool:
     """Log transformer errors but continue processing."""
     logger.warning(
@@ -142,7 +126,7 @@ def log_and_continue_transformer_exception(
     return CONTINUE
 
 
-def silent_transformer_exception(_: TRANSFORMER, __: str, ___: Exception) -> bool:
+def silent_transformer_exception(_: "TRANSFORMER", __: str, ___: Exception) -> bool:
     """Silently ignore transformer exceptions and continue."""
     return CONTINUE
 
@@ -151,7 +135,7 @@ transformer_exceptions_caught = []
 
 
 def collecting_transformer_exception(
-    transformer: TRANSFORMER, namespace: str, exception: Exception
+    transformer: "TRANSFORMER", namespace: str, exception: Exception
 ) -> bool:
     """Collect transformer exceptions for batch processing."""
     transformer_exceptions_caught.append(
