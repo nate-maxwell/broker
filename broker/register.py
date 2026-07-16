@@ -36,8 +36,7 @@ def register_subscriber(
     Register a callback function to a namespace.
 
     Args:
-        namespace (str): Event namespace
-            (e.g., 'system.io.file_open' or 'system.*').
+        namespace (str): Event namespace (e.g., 'system.io.file_open' or 'system.*').
         callback (Callable): Function to call when events are emitted. Can be
             sync or async.
         priority (int): The priority used for callback execution order.
@@ -48,42 +47,29 @@ def register_subscriber(
         SignatureMismatchError: If callback signature doesn't match existing
             subscribers.
     Notes:
-        Emits a notify event when a namespace is created and when a
-        subscriber is registered. Notify emits the used namespace.
+        Emits a notify event when a namespace is created and when a subscriber
+        is registered. Notify emits the used namespace.
     """
-    callback_params = function.get_callback_params(callback)
-    is_async = inspect.iscoroutinefunction(callback)
-
     weak_callback = function.make_weak_ref(
         callback=callback,
         namespace=namespace,
         on_collected_callback=_on_subscriber_collected,
     )
-
     sub = subscriber.Subscriber(
         weak_callback=weak_callback,
         priority=priority,
-        is_async=is_async,
+        is_async=inspect.iscoroutinefunction(callback),
         namespace=namespace,
         is_one_shot=once,
     )
 
     is_new_namespace = registry.ensure_namespace_exists(namespace)
     entry = registry.NAMESPACE_REGISTRY[namespace]
-
-    # Validate/set signature
-    if entry.signature is None:
-        entry.signature = callback_params
-    else:
-        existing_params = entry.signature
-        if existing_params is None or callback_params is None:
-            entry.signature = None
-        elif existing_params != callback_params:
-            raise exceptions.SignatureMismatchError(
-                f"Subscriber parameter mismatch for namespace '{namespace}'. "
-                f"Expected parameters: {sorted(existing_params)}, "
-                f"but got: {sorted(callback_params)}"
-            )
+    _validate_and_set_subscriber_signature(
+        namespace=namespace,
+        entry=entry,
+        callback_params=function.get_callback_params(callback),
+    )
 
     entry.subscribers.append(sub)
 
@@ -95,6 +81,26 @@ def register_subscriber(
         and routing.notify_on_subscribe
     ):
         routing.emit(namespace=namespaces.BROKER_ON_SUBSCRIBER_ADDED, using=namespace)
+
+
+def _validate_and_set_subscriber_signature(
+    namespace: str,
+    entry: registry.NamespaceEntry,
+    callback_params: set[str] | None,
+) -> None:
+    if entry.signature is None:
+        entry.signature = callback_params
+        return
+
+    existing_params = entry.signature
+    if existing_params is None or callback_params is None:
+        entry.signature = None
+    elif existing_params != callback_params:
+        raise exceptions.SignatureMismatchError(
+            f"Subscriber parameter mismatch for namespace '{namespace}'. "
+            f"Expected parameters: {sorted(existing_params)}, "
+            f"but got: {sorted(callback_params)}"
+        )
 
 
 def subscribe(
