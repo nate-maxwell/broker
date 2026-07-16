@@ -118,7 +118,8 @@ def ensure_namespace_exists(namespace: str) -> bool:
 
 def get_sorted_subscribers(namespace: str) -> list[tuple[str, "Subscriber"]]:
     """Get all live subscribers matching namespace, sorted by priority descending."""
-    result = []
+    result: list[tuple[str, "Subscriber"]] = []
+
     for reg_namespace, entry in NAMESPACE_REGISTRY.items():
         if matches(namespace, reg_namespace):
             result.extend((reg_namespace, sub) for sub in entry.subscribers)
