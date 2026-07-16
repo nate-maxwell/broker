@@ -1,7 +1,7 @@
 """
 # Primary event routing logic
 
-Herein is the event broker's routing system itself.
+The business logic layer with public hooks for users and other api objects.
 
 For a complete breakdown of broker functionality, read the project readme.
 """
@@ -39,7 +39,6 @@ __all__ = [
     "clear",
     "clear_staged",
     "notify_new_namespace_created",
-    "set_flag_states",
 ]
 
 notify_on_all: bool = False
@@ -92,40 +91,19 @@ def emit(namespace: str, **kwargs: Any) -> None:
         -Emits a notify event after args have been sent to subscribers.
         Notify emits the used namespace.
     """
-    if _paused > 0:
+    if _is_paused():
         return
 
-    function.validate_emit_args(namespace, kwargs)
-
-    transformed_kwargs = _apply_transformers(namespace, kwargs)
+    transformed_kwargs = _prepare_emit(namespace, kwargs)
     if transformed_kwargs is None:
         return
 
-    one_shots: list[tuple[str, subscriber.SUBSCRIBER]] = []
-
-    for reg_namespace, sub in registry.get_sorted_subscribers(namespace):
-        callback = sub.callback
-        if callback is None or sub.is_async:
-            continue
-
-        try:
-            callback(**transformed_kwargs)
-        except Exception as e:
-            if subscriber.subscriptions_exception_handler is None:
-                raise
-            if subscriber.subscriptions_exception_handler(callback, namespace, e):
-                break
-
-        if sub.is_one_shot:
-            one_shots.append((reg_namespace, callback))
-
-    for reg_namespace, callback in one_shots:
-        subscriber.unregister_subscriber(reg_namespace, callback)
-
-    if not namespace.startswith(namespaces.NOTIFY_NAMESPACE_ROOT) and (
-        notify_on_emit or notify_on_emit_all
-    ):
-        emit(namespace=namespaces.BROKER_ON_EMIT, using=namespace)
+    _emit_sync_subscribers(namespace, transformed_kwargs)
+    _emit_notify_event(
+        source_namespace=namespace,
+        notify_namespace=namespaces.BROKER_ON_EMIT,
+        should_notify=notify_on_emit or notify_on_emit_all,
+    )
 
 
 async def emit_async(namespace: str, **kwargs: Any) -> None:
@@ -151,45 +129,19 @@ async def emit_async(namespace: str, **kwargs: Any) -> None:
         -Emits a notify event after args have been sent to subscribers.
         Notify emits the used namespace.
     """
-    if _paused > 0:
+    if _is_paused():
         return
 
-    function.validate_emit_args(namespace, kwargs)
-
-    transformed_kwargs = _apply_transformers(namespace, kwargs)
+    transformed_kwargs = _prepare_emit(namespace, kwargs)
     if transformed_kwargs is None:
-        return  # Event blocked
+        return
 
-    one_shots: list[tuple[str, subscriber.SUBSCRIBER]] = []
-
-    for reg_namespace, sub in registry.get_sorted_subscribers(namespace):
-        callback = sub.callback
-
-        if callback is None:
-            continue
-
-        try:
-            if sub.is_async:
-                await callback(**transformed_kwargs)
-            else:
-                callback(**transformed_kwargs)
-        except Exception as e:
-            if subscriber.subscriptions_exception_handler is None:
-                raise
-
-            if subscriber.subscriptions_exception_handler(callback, namespace, e):
-                break
-
-        if sub.is_one_shot:
-            one_shots.append((reg_namespace, callback))
-
-    for reg_namespace, callback in one_shots:
-        subscriber.unregister_subscriber(reg_namespace, callback)
-
-    if not namespace.startswith(namespaces.NOTIFY_NAMESPACE_ROOT) and (
-        notify_on_emit_async or notify_on_emit_all
-    ):
-        emit(namespace=namespaces.BROKER_ON_EMIT_ASYNC, using=namespace)
+    await _emit_async_subscribers(namespace, transformed_kwargs)
+    _emit_notify_event(
+        source_namespace=namespace,
+        notify_namespace=namespaces.BROKER_ON_EMIT_ASYNC,
+        should_notify=notify_on_emit_async or notify_on_emit_all,
+    )
 
 
 def stage(namespace: str, **kwargs: Any) -> None:
@@ -262,65 +214,151 @@ def notify_new_namespace_created(namespace: str) -> None:
         emit(namespace=namespaces.BROKER_ON_NAMESPACE_CREATED, using=namespace)
 
 
-def set_flag_states(
-    on_subscribe: bool = False,
-    on_unsubscribe: bool = False,
-    on_subscriber_collected: bool = False,
-    on_transform: bool = False,
-    on_untransform: bool = False,
-    on_transformer_collected: bool = False,
-    on_emit: bool = False,
-    on_emit_async: bool = False,
-    on_emit_all: bool = False,
-    on_new_namespace: bool = False,
-    on_del_namespace: bool = False,
+def _is_paused() -> bool:
+    return _paused > 0
+
+
+def _prepare_emit(namespace: str, kwargs: dict[str, Any]) -> Optional[dict[str, Any]]:
+    """Validate emit arguments and apply matching transformers."""
+    function.validate_emit_args(namespace, kwargs)
+    return _apply_transformers(namespace, kwargs)
+
+
+def _flush_one_shots(one_shots: list[tuple[str, subscriber.SUBSCRIBER_SIG]]) -> None:
+    # duplicate to subscriber.unregister_subscriber to avoid a circular import.
+    for reg_namespace, callback in one_shots:
+        if reg_namespace not in registry.NAMESPACE_REGISTRY:
+            return
+
+        entry = registry.NAMESPACE_REGISTRY[reg_namespace]
+        items = entry.subscribers
+        entry.subscribers = [i for i in items if i.callback != callback]
+
+        if (
+            not reg_namespace.startswith(namespaces.NOTIFY_NAMESPACE_ROOT)
+            and notify_on_unsubscribe
+        ):
+            emit(namespace=namespaces.BROKER_ON_SUBSCRIBER_REMOVED, using=reg_namespace)
+
+        namespaces.cleanup_namespace_if_empty(reg_namespace)
+
+
+def _emit_sync_subscribers(namespace: str, transformed_kwargs: dict[str, Any]) -> None:
+    """
+    Orchestrates delivering events to synchronous subscribers in priority order.
+
+    This coordinates subscriber iteration and one-shot cleanup. Per-subscriber
+    invocation and exception policy live in _deliver_sync_subscriber().
+    """
+    one_shots: list[tuple[str, subscriber.SUBSCRIBER_SIG]] = []
+
+    for reg_namespace, sub in registry.get_sorted_subscribers(namespace):
+        if not _deliver_sync_subscriber(
+            namespace=namespace,
+            transformed_kwargs=transformed_kwargs,
+            reg_namespace=reg_namespace,
+            sub=sub,
+            one_shots=one_shots,
+        ):
+            break
+
+    _flush_one_shots(one_shots)
+
+
+async def _emit_async_subscribers(
+    namespace: str, transformed_kwargs: dict[str, Any]
 ) -> None:
     """
-    Set the notification flags on or off for each type of broker activity.
-    The broker can be configured through any of the following:
+    Orchestrates delivering events to all matching subscribers in priority order.
 
-    Args:
-        on_subscribe:    	       if True, get notified whenever register_subscriber() is called;
-        on_unsubscribe:  	       if True, get notified whenever unregister_subscriber() is called;
-        on_subscriber_collected:   if True, get notified whenever a subscriber has been garbage collected;
-
-        on_transform:    	       if True, get notified whenever register_transformer() is called;
-        on_untransform:  	       if True, get notified whenever unregister_transformer() is called;
-        on_transformer_collected:  if True, get notified whenever a transformer has been garbage collected;
-
-        on_emit:			       if True, get notified whenever emit() is called;
-        on_emit_async:		       if True, get notified whenever emit_async() is called;
-        on_emit_all:		       if True, get notified whenever emit() or emit_async() is called.
-
-        on_new_namespace: 	       if True, get notified whenever a new namespace is created;
-        on_del_namespace:	       if True, get notified whenever a namespace is "deleted";
+    This coordinates subscriber iteration and one-shot cleanup. Per-subscriber
+    invocation and exception policy live in _deliver_async_subscriber().
     """
-    global notify_on_subscribe
-    global notify_on_unsubscribe
-    global notify_on_collected
-    global notify_on_transformer_add
-    global notify_on_transformer_remove
-    global notify_on_transformer_collected
-    global notify_on_emit
-    global notify_on_emit_async
-    global notify_on_emit_all
-    global notify_on_new_namespace
-    global notify_on_del_namespace
+    one_shots: list[tuple[str, subscriber.SUBSCRIBER_SIG]] = []
 
-    notify_on_subscribe = on_subscribe
-    notify_on_unsubscribe = on_unsubscribe
-    notify_on_collected = on_subscriber_collected
+    for reg_namespace, sub in registry.get_sorted_subscribers(namespace):
+        if not await _deliver_async_subscriber(
+            namespace=namespace,
+            transformed_kwargs=transformed_kwargs,
+            reg_namespace=reg_namespace,
+            sub=sub,
+            one_shots=one_shots,
+        ):
+            break
 
-    notify_on_transformer_add = on_transform
-    notify_on_transformer_remove = on_untransform
-    notify_on_transformer_collected = on_transformer_collected
+    _flush_one_shots(one_shots)
 
-    notify_on_emit = on_emit
-    notify_on_emit_async = on_emit_async
-    notify_on_emit_all = on_emit_all
 
-    notify_on_new_namespace = on_new_namespace
-    notify_on_del_namespace = on_del_namespace
+def _deliver_sync_subscriber(
+    namespace: str,
+    transformed_kwargs: dict[str, Any],
+    reg_namespace: str,
+    sub: subscriber.Subscriber,
+    one_shots: list[tuple[str, subscriber.SUBSCRIBER_SIG]],
+) -> bool:
+    callback = sub.callback
+    if callback is None or sub.is_async:
+        return True
+
+    try:
+        callback(**transformed_kwargs)
+    except Exception as exc:
+        if subscriber.subscriptions_exception_handler is None:
+            raise
+
+        if subscriber.subscriptions_exception_handler(callback, namespace, exc):
+            return False
+
+    if sub.is_one_shot:
+        one_shots.append((reg_namespace, callback))
+
+    return True
+
+
+async def _deliver_async_subscriber(
+    namespace: str,
+    transformed_kwargs: dict[str, Any],
+    reg_namespace: str,
+    sub: subscriber.Subscriber,
+    one_shots: list[tuple[str, subscriber.SUBSCRIBER_SIG]],
+) -> bool:
+    callback = sub.callback
+
+    if callback is None:
+        return True
+
+    try:
+        if sub.is_async:
+            await callback(**transformed_kwargs)
+        else:
+            callback(**transformed_kwargs)
+    except Exception as exc:
+        if subscriber.subscriptions_exception_handler is None:
+            raise
+
+        if subscriber.subscriptions_exception_handler(callback, namespace, exc):
+            return False
+
+    if sub.is_one_shot:
+        one_shots.append((reg_namespace, callback))
+
+    return True
+
+
+def _emit_notify_event(
+    source_namespace: str, notify_namespace: str, should_notify: bool
+) -> None:
+    """
+    Emit a broker notification for a non-notify source namespace when enabled.
+
+    Notification events are skipped for namespaces under the broker notify
+    root to avoid recursive notification loops.
+    """
+    if source_namespace.startswith(namespaces.NOTIFY_NAMESPACE_ROOT):
+        return
+
+    if should_notify:
+        emit(namespace=notify_namespace, using=source_namespace)
 
 
 def _apply_transformers(
