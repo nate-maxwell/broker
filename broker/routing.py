@@ -14,6 +14,7 @@ from broker import handlers
 from broker import namespaces
 from broker import subscriber
 from broker import transformer
+from broker import register
 from broker.private import registry
 
 __all__ = [
@@ -225,9 +226,9 @@ def _prepare_emit(namespace: str, kwargs: dict[str, Any]) -> Optional[dict[str, 
     return _apply_transformers(namespace, kwargs)
 
 
-def _flush_one_shots(one_shots: list[tuple[str, subscriber.SUBSCRIBER]]) -> None:
+def _flush_one_shots(one_shots: list[tuple[str, subscriber.SUBSCRIBER_SIG]]) -> None:
     for reg_namespace, callback in one_shots:
-        subscriber.unregister_subscriber(reg_namespace, callback)
+        register.unregister_subscriber(reg_namespace, callback)
 
 
 def _emit_sync_subscribers(namespace: str, transformed_kwargs: dict[str, Any]) -> None:
@@ -238,7 +239,7 @@ def _emit_sync_subscribers(namespace: str, transformed_kwargs: dict[str, Any]) -
     delivery. If a subscriber exception handler is configured, it decides
     whether delivery should stop after an exception.
     """
-    one_shots: list[tuple[str, subscriber.SUBSCRIBER]] = []
+    one_shots: list[tuple[str, subscriber.SUBSCRIBER_SIG]] = []
 
     for reg_namespace, sub in registry.get_sorted_subscribers(namespace):
         callback = sub.callback
@@ -271,7 +272,7 @@ async def _emit_async_subscribers(
     If a subscriber exception handler is configured, it decides whether
     delivery should stop after an exception.
     """
-    one_shots: list[tuple[str, subscriber.SUBSCRIBER]] = []
+    one_shots: list[tuple[str, subscriber.SUBSCRIBER_SIG]] = []
 
     for reg_namespace, sub in registry.get_sorted_subscribers(namespace):
         callback = sub.callback

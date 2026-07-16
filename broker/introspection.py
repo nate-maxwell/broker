@@ -18,9 +18,9 @@ from broker.private.registry import matches
 
 if TYPE_CHECKING:
     from broker.subscriber import Subscriber
-    from broker.subscriber import SUBSCRIBER
+    from broker.subscriber import SUBSCRIBER_SIG
     from broker.transformer import Transformer
-    from broker.transformer import TRANSFORMER
+    from broker.transformer import TRANSFORMER_SIG
 
 # -----Subscriber Introspection Methods--------------------------
 
@@ -59,7 +59,7 @@ def get_live_subscriber_count(namespace: str) -> int:
     )
 
 
-def is_subscribed(callback: "SUBSCRIBER", namespace: str) -> bool:
+def is_subscribed(callback: "SUBSCRIBER_SIG", namespace: str) -> bool:
     """
     Check if a specific callback is subscribed to a namespace.
 
@@ -80,7 +80,7 @@ def is_subscribed(callback: "SUBSCRIBER", namespace: str) -> bool:
     return False
 
 
-def get_subscriptions(callback: "SUBSCRIBER") -> list[str]:
+def get_subscriptions(callback: "SUBSCRIBER_SIG") -> list[str]:
     """
     Get all namespaces that a callback is subscribed to.
 
@@ -178,7 +178,7 @@ def get_live_transformer_count(namespace: str) -> int:
     )
 
 
-def is_transformed(callback: "TRANSFORMER", namespace: str) -> bool:
+def is_transformed(callback: "TRANSFORMER_SIG", namespace: str) -> bool:
     """
     Check if a specific callback is registered as a transformer for a namespace.
 
@@ -200,7 +200,7 @@ def is_transformed(callback: "TRANSFORMER", namespace: str) -> bool:
     return False
 
 
-def get_transformations(callback: "TRANSFORMER") -> list[str]:
+def get_transformations(callback: "TRANSFORMER_SIG") -> list[str]:
     """
     Get all namespaces that a callback is registered as a transformer for.
 

@@ -17,7 +17,7 @@ from broker.private import registry
 
 
 def make_weak_ref(
-    callback: subscriber.SUBSCRIBER,
+    callback: subscriber.SUBSCRIBER_SIG,
     namespace: str,
     on_collected_callback: Callable[[str], None],
 ) -> Union[weakref.ref[Any], weakref.WeakMethod]:
@@ -33,7 +33,7 @@ def make_weak_ref(
         return weakref.ref(callback, cleanup)
 
 
-def get_callback_params(callback: subscriber.SUBSCRIBER) -> Optional[set[str]]:
+def get_callback_params(callback: subscriber.SUBSCRIBER_SIG) -> Optional[set[str]]:
     """
     Extract parameter names from a callback function.
 
