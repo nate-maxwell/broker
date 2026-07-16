@@ -12,6 +12,7 @@ from typing import Optional
 from typing import TYPE_CHECKING
 from typing import Union
 
+from broker import routing
 from broker.private.registry import NAMESPACE_REGISTRY
 from broker.private.registry import STAGED_REGISTRY
 from broker.private.registry import matches
@@ -21,6 +22,56 @@ if TYPE_CHECKING:
     from broker.subscriber import SUBSCRIBER_SIG
     from broker.transformer import Transformer
     from broker.transformer import TRANSFORMER_SIG
+
+
+def set_flag_states(
+    on_subscribe: bool = False,
+    on_unsubscribe: bool = False,
+    on_subscriber_collected: bool = False,
+    on_transform: bool = False,
+    on_untransform: bool = False,
+    on_transformer_collected: bool = False,
+    on_emit: bool = False,
+    on_emit_async: bool = False,
+    on_emit_all: bool = False,
+    on_new_namespace: bool = False,
+    on_del_namespace: bool = False,
+) -> None:
+    """
+    Set the notification flags on or off for each type of broker activity.
+    The broker can be configured through any of the following:
+
+    Args:
+        on_subscribe:    	       if True, get notified whenever register_subscriber() is called;
+        on_unsubscribe:  	       if True, get notified whenever unregister_subscriber() is called;
+        on_subscriber_collected:   if True, get notified whenever a subscriber has been garbage collected;
+
+        on_transform:    	       if True, get notified whenever register_transformer() is called;
+        on_untransform:  	       if True, get notified whenever unregister_transformer() is called;
+        on_transformer_collected:  if True, get notified whenever a transformer has been garbage collected;
+
+        on_emit:			       if True, get notified whenever emit() is called;
+        on_emit_async:		       if True, get notified whenever emit_async() is called;
+        on_emit_all:		       if True, get notified whenever emit() or emit_async() is called.
+
+        on_new_namespace: 	       if True, get notified whenever a new namespace is created;
+        on_del_namespace:	       if True, get notified whenever a namespace is "deleted";
+    """
+    routing.notify_on_subscribe = on_subscribe
+    routing.notify_on_unsubscribe = on_unsubscribe
+    routing.notify_on_collected = on_subscriber_collected
+
+    routing.notify_on_transformer_add = on_transform
+    routing.notify_on_transformer_remove = on_untransform
+    routing.notify_on_transformer_collected = on_transformer_collected
+
+    routing.notify_on_emit = on_emit
+    routing.notify_on_emit_async = on_emit_async
+    routing.notify_on_emit_all = on_emit_all
+
+    routing.notify_on_new_namespace = on_new_namespace
+    routing.notify_on_del_namespace = on_del_namespace
+
 
 # -----Subscriber Introspection Methods--------------------------
 
