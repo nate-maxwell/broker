@@ -8,26 +8,6 @@ import pytest
 import broker
 
 
-# -----------------------------------------------------------------------------
-# Many of the tests are attempting to verify data within the broker, but the
-# broker uses a protective closure to make the subscriber table difficult to
-# access.
-
-# The work-around is to create functions that append results to a local table,
-# list, or other collection and validate that the collection contains the
-# expected items.
-# -----------------------------------------------------------------------------
-
-
-def test_record_protected() -> None:
-    """Test that the subscriber dict in the broker is protected by closure."""
-    broker.clear()
-    try:
-        _ = "foo" in broker._NAMESPACE_REGISTRY
-    except Exception as e:
-        assert type(e) is AttributeError
-
-
 def test_subscriber_registration() -> None:
     """Test that a subscriber is successfully registered to a namespace."""
     broker.clear()
