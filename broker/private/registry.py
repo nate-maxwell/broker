@@ -16,8 +16,8 @@ subscriber to a newly created namespace.
 
 import os
 import sys
+from collections import defaultdict
 from dataclasses import dataclass
-from typing import DefaultDict
 from typing import Optional
 from typing import TYPE_CHECKING
 
@@ -73,7 +73,7 @@ A namespace exists if it has at least one subscriber OR transformer.
 """
 
 
-STAGED_REGISTRY: dict[str, list[dict]] = DefaultDict(list)
+STAGED_REGISTRY: dict[str, list[dict]] = defaultdict(list)
 """
 A separate namespace table to temporarily hold emitted values until the user
 calls broker.emit_staged(). 
@@ -86,10 +86,10 @@ def matches(namespace: str, pattern: str) -> bool:
     namespace.
 
     Args:
-        namespace (str): The namespace where event was emitted.
+        namespace (str): The namespace where the event was emitted.
         pattern (str): The namespace to check against.
     Returns:
-        bool: True if subscriber should receive the event.
+        bool: True if subscribers should receive the event.
     """
     if namespace == pattern:
         return True
