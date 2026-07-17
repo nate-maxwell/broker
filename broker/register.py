@@ -12,6 +12,7 @@ from broker.private import registry
 
 
 __all__ = [
+    "SignatureMismatchError",
     "register_subscriber",
     "subscribe",
     "unregister_subscriber",
@@ -21,6 +22,10 @@ __all__ = [
     "unregister_transformer",
     "unregister_transformer_all",
 ]
+
+
+class SignatureMismatchError(Exception):
+    """Raised when callback signatures don't match for a namespace."""
 
 
 # -----Subscribers-------------------------------------------------------------
