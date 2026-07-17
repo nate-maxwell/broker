@@ -11,9 +11,12 @@ from typing import Callable
 from typing import Optional
 from typing import Union
 
-from broker import exceptions
 from broker import subscriber
 from broker.private import registry
+
+
+class EmitArgumentError(Exception):
+    """Raised when emit arguments don't match subscriber signatures."""
 
 
 def make_weak_ref(
@@ -80,7 +83,7 @@ def validate_emit_args(namespace: str, kwargs: dict[str, Any]) -> None:
             continue
 
         if provided_args != expected_params:
-            raise exceptions.EmitArgumentError(
+            raise EmitArgumentError(
                 f"Argument mismatch when emitting to '{namespace}'. "
                 f"Subscribers in '{reg_namespace}' expect: {sorted(expected_params)}, "
                 f"but got: {sorted(provided_args)}"

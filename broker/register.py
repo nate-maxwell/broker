@@ -3,7 +3,6 @@ from typing import Callable
 
 from broker import subscriber
 from broker import transformer
-from broker import exceptions
 from broker import function
 from broker import introspection
 from broker import namespaces
@@ -12,6 +11,7 @@ from broker.private import registry
 
 
 __all__ = [
+    "SignatureMismatchError",
     "register_subscriber",
     "subscribe",
     "unregister_subscriber",
@@ -21,6 +21,10 @@ __all__ = [
     "unregister_transformer",
     "unregister_transformer_all",
 ]
+
+
+class SignatureMismatchError(Exception):
+    """Raised when callback signatures don't match for a namespace."""
 
 
 # -----Subscribers-------------------------------------------------------------
@@ -96,7 +100,7 @@ def _validate_and_set_subscriber_signature(
     if existing_params is None or callback_params is None:
         entry.signature = None
     elif existing_params != callback_params:
-        raise exceptions.SignatureMismatchError(
+        raise SignatureMismatchError(
             f"Subscriber parameter mismatch for namespace '{namespace}'. "
             f"Expected parameters: {sorted(existing_params)}, "
             f"but got: {sorted(callback_params)}"
