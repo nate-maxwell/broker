@@ -226,7 +226,7 @@ def test_get_live_transformers() -> None:
 
 
 def test_get_matching_namespaces() -> None:
-    """Test getting namespaces that match a pattern."""
+    """Test getting a namespace root and its descendants."""
     broker.clear()
 
     def handler(data: str) -> None:
@@ -237,13 +237,13 @@ def test_get_matching_namespaces() -> None:
     broker.register_subscriber("system.ui.render", handler)
     broker.register_subscriber("app.startup", handler)
 
-    matches = broker.get_matching_namespaces("system.io.*")
+    matches = broker.get_matching_namespaces("system.io")
     assert matches == ["system.io.file", "system.io.network"]
 
     matches = broker.get_matching_namespaces("app.startup")
     assert matches == ["app.startup"]
 
-    matches = broker.get_matching_namespaces("system.*")
+    matches = broker.get_matching_namespaces("system")
     assert "system.io.file" in matches
     assert "system.ui.render" in matches
 
@@ -374,8 +374,8 @@ def test_get_statistics_with_transformers() -> None:
     assert stats["average_transformers_per_namespace"] == 1.0
 
 
-def test_inspection_with_wildcard_subscribers() -> None:
-    """Test inspection works correctly with wildcard subscriptions."""
+def test_inspection_with_parent_subscribers() -> None:
+    """Test inspection works correctly with parent subscriptions."""
     broker.clear()
 
     def wildcard_handler(data: str) -> None:
@@ -384,19 +384,19 @@ def test_inspection_with_wildcard_subscribers() -> None:
     def specific_handler(data: str) -> None:
         pass
 
-    broker.register_subscriber("system.*", wildcard_handler)
+    broker.register_subscriber("system", wildcard_handler)
     broker.register_subscriber("system.io.file", specific_handler)
 
     namespaces = broker.get_namespaces()
-    assert "system.*" in namespaces
+    assert "system" in namespaces
     assert "system.io.file" in namespaces
 
-    assert broker.is_subscribed(wildcard_handler, "system.*")
+    assert broker.is_subscribed(wildcard_handler, "system")
     assert broker.is_subscribed(specific_handler, "system.io.file")
 
 
-def test_inspection_with_wildcard_transformers() -> None:
-    """Test inspection works correctly with wildcard transformer registrations."""
+def test_inspection_with_parent_transformers() -> None:
+    """Test inspection works correctly with parent transformers."""
     broker.clear()
 
     def wildcard_transformer(namespace: str, kwargs: dict) -> dict:
@@ -405,14 +405,14 @@ def test_inspection_with_wildcard_transformers() -> None:
     def specific_transformer(namespace: str, kwargs: dict) -> dict:
         return kwargs
 
-    broker.register_transformer("system.*", wildcard_transformer)
+    broker.register_transformer("system", wildcard_transformer)
     broker.register_transformer("system.io.file", specific_transformer)
 
     namespaces = broker.get_namespaces()
-    assert "system.*" in namespaces
+    assert "system" in namespaces
     assert "system.io.file" in namespaces
 
-    assert broker.is_transformed(wildcard_transformer, "system.*")
+    assert broker.is_transformed(wildcard_transformer, "system")
     assert broker.is_transformed(specific_transformer, "system.io.file")
 
 

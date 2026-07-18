@@ -1,334 +1,337 @@
-"""
-Unit test to ensure argument validation works across different namespace levels.
-
-When a callback subscribes to a different level of a namespace hierarchy
-(e.g., 'system.*' wildcard vs 'system.io.file' specific), the emit arguments
-should still be validated against all matching subscribers.
-"""
-
-# -----------------------------------------------------------------------------
-# Many of the tests are attempting to verify data within the broker, but the
-# broker uses a protective closure to make the subscriber table difficult to
-# access.
-
-# The work-around is to create functions that append results to a local table,
-# list, or other collection and validate that the collection contains the
-# expected items.
-# -----------------------------------------------------------------------------
+"""Tests for hierarchical namespace contracts and event arguments."""
 
 from typing import Any
+from typing import Callable
 
 import pytest
 
 import broker
 
 
-def test_wildcard_and_specific_same_signature() -> None:
-    """Test that wildcard and specific namespaces with same signature work together."""
+@pytest.fixture(autouse=True)
+def clear_broker() -> None:
     broker.clear()
-    wildcard_called: list[str] = []
-    specific_called: list[str] = []
 
-    def wildcard_handler(filename: str, size: int) -> None:
-        wildcard_called.append(filename)
 
-    def specific_handler(filename: str, size: int) -> None:
-        specific_called.append(filename)
+def test_child_expands_parent_contract_and_projects_parent_payload() -> None:
+    parent_calls: list[tuple[str]] = []
+    child_calls: list[tuple[str, int]] = []
 
-    broker.register_subscriber("system.*", wildcard_handler)
-    broker.register_subscriber("system.io.file", specific_handler)
+    def parent(filename: str) -> None:
+        parent_calls.append((filename,))
 
+    def child(filename: str, size: int) -> None:
+        child_calls.append((filename, size))
+
+    broker.register_subscriber("system", parent)
+    broker.register_subscriber("system.io.file", child)
     broker.emit("system.io.file", filename="test.txt", size=1024)
 
-    assert len(wildcard_called) == 1
-    assert len(specific_called) == 1
+    assert parent_calls == [("test.txt",)]
+    assert child_calls == [("test.txt", 1024)]
 
 
-def test_wildcard_then_specific_different_signature_raises() -> None:
-    """
-    Test that different signatures between wildcard and specific raise
-    validation error.
-    """
-    broker.clear()
-
-    def wildcard_handler(filename: str, size: int) -> None:
+def test_child_contract_must_include_parent_contract() -> None:
+    def parent(filename: str, size: int) -> None:
         pass
 
-    def specific_handler(filename: str, content: str) -> None:
+    def child(filename: str) -> None:
         pass
 
-    broker.register_subscriber("system.*", wildcard_handler)
-    broker.register_subscriber("system.io.file", specific_handler)
+    broker.register_subscriber("system", parent)
 
-    # Should raise because wildcard expects (filename, size) but we're
-    # giving (filename, content)
-    with pytest.raises(broker.EmitArgumentError) as exc_info:
-        broker.emit("system.io.file", filename="test.txt", content="data")
+    with pytest.raises(broker.SignatureMismatchError, match="child namespace"):
+        broker.register_subscriber("system.io", child)
 
-    assert "system.*" in str(exc_info.value)
-    assert "filename" in str(exc_info.value)
+    assert not broker.namespace_exists("system.io")
 
 
-def test_specific_then_wildcard_different_signature_raises() -> None:
-    """
-    Test validation error when specific namespace exists before wildcard with
-    different signature.
-    """
-    broker.clear()
+def test_parent_can_be_registered_after_compatible_child() -> None:
+    calls: list[str] = []
 
-    def specific_handler(filename: str, size: int) -> None:
+    def child(data: str, extra: int) -> None:
         pass
 
-    def wildcard_handler(filename: str, content: str) -> None:
+    def parent(data: str) -> None:
+        calls.append(data)
+
+    broker.register_subscriber("app.module.action", child)
+    broker.register_subscriber("app", parent)
+    broker.emit("app.module.action", data="test", extra=42)
+
+    assert calls == ["test"]
+
+
+def test_parent_registered_after_child_must_be_child_subset() -> None:
+    def child(data: str) -> None:
         pass
 
-    broker.register_subscriber("system.io.file", specific_handler)
-    broker.register_subscriber("system.*", wildcard_handler)
+    def parent(data: str, extra: int) -> None:
+        pass
 
-    # Should raise because specific expects (filename, size)
-    with pytest.raises(broker.EmitArgumentError) as exc_info:
-        broker.emit("system.io.file", filename="test.txt", content="data")
+    broker.register_subscriber("app.module.action", child)
 
-    assert "system.io.file" in str(exc_info.value)
+    with pytest.raises(broker.SignatureMismatchError, match="parent namespace"):
+        broker.register_subscriber("app", parent)
+
+    assert not broker.namespace_exists("app")
 
 
-def test_multiple_wildcard_levels_same_signature() -> None:
-    """Test multiple wildcard levels with same signature work together."""
-    broker.clear()
-    level1_called: list[bool] = []
-    level2_called: list[bool] = []
-    specific_called: list[bool] = []
+def test_parent_registered_after_flexible_child_expands_child_contract() -> None:
+    def child(extra: int, **kwargs: Any) -> None:
+        pass
 
+    def parent(data: str) -> None:
+        pass
+
+    def fixed_child(data: str, extra: int) -> None:
+        pass
+
+    broker.register_subscriber("app.child", child)
+    broker.register_subscriber("app", parent)
+    broker.register_subscriber("app.child", fixed_child)
+
+    assert broker.get_namespace_info("app.child")["expected_params"] == {
+        "data",
+        "extra",
+    }
+
+
+def test_three_level_contracts_can_expand_at_each_level() -> None:
+    calls: list[tuple[str, tuple[object, ...]]] = []
+
+    def root(data: str) -> None:
+        calls.append(("root", (data,)))
+
+    def child(data: str, module: str) -> None:
+        calls.append(("child", (data, module)))
+
+    def grandchild(data: str, module: str, action: int) -> None:
+        calls.append(("grandchild", (data, module, action)))
+
+    broker.register_subscriber("root", root)
+    broker.register_subscriber("root.child", child)
+    broker.register_subscriber("root.child.grandchild", grandchild)
+    broker.emit("root.child.grandchild", data="test", module="core", action=3)
+
+    assert calls == [
+        ("root", ("test",)),
+        ("child", ("test", "core")),
+        ("grandchild", ("test", "core", 3)),
+    ]
+
+
+def test_subscribers_at_same_namespace_keep_one_contract() -> None:
+    def first(filename: str, size: int) -> None:
+        pass
+
+    def second(filename: str, mode: str) -> None:
+        pass
+
+    broker.register_subscriber("file.save", first)
+
+    with pytest.raises(broker.SignatureMismatchError, match="parameter mismatch"):
+        broker.register_subscriber("file.save", second)
+
+
+def test_emit_requires_every_ancestor_contract_key() -> None:
+    def root(data: str) -> None:
+        pass
+
+    def child(data: str, extra: int) -> None:
+        pass
+
+    broker.register_subscriber("app", root)
+    broker.register_subscriber("app.module", child)
+
+    with pytest.raises(broker.EmitArgumentError, match="extra"):
+        broker.emit("app.module", data="test")
+
+
+def test_extra_payload_keys_are_allowed_and_filtered() -> None:
+    received: list[str] = []
+
+    def handler(data: str) -> None:
+        received.append(data)
+
+    broker.register_subscriber("events", handler)
+    broker.emit("events.click", data="test", child_only=42)
+
+    assert received == ["test"]
+
+
+def test_kwargs_only_subscriber_does_not_prevent_concrete_contract() -> None:
+    flexible_calls: list[dict[str, Any]] = []
+    specific_calls: list[str] = []
+
+    def flexible(**kwargs: Any) -> None:
+        flexible_calls.append(kwargs)
+
+    def specific(data: str) -> None:
+        specific_calls.append(data)
+
+    broker.register_subscriber("events", flexible)
+    broker.register_subscriber("events", specific)
+    broker.emit("events", data="test", transformed=True)
+
+    assert broker.get_namespace_info("events")["expected_params"] == {"data"}
+    assert flexible_calls == [{"data": "test", "transformed": True}]
+    assert specific_calls == ["test"]
+
+
+def test_named_kwargs_subscriber_can_accept_established_contract() -> None:
+    received: list[tuple[str, dict[str, Any]]] = []
+
+    def fixed(data: str, level: int) -> None:
+        pass
+
+    def flexible(data: str, **kwargs: Any) -> None:
+        received.append((data, kwargs))
+
+    broker.register_subscriber("events", fixed)
+    broker.register_subscriber("events", flexible)
+    broker.emit("events.child", data="test", level=2, child_only=True)
+
+    assert received == [("test", {"level": 2, "child_only": True})]
+
+
+def test_named_kwargs_child_inherits_parent_contract() -> None:
+    def parent(data: str) -> None:
+        pass
+
+    def flexible_child(extra: int, **kwargs: Any) -> None:
+        pass
+
+    def fixed_child(data: str, extra: int) -> None:
+        pass
+
+    broker.register_subscriber("events", parent)
+    broker.register_subscriber("events.child", flexible_child)
+    broker.register_subscriber("events.child", fixed_child)
+
+    assert broker.get_namespace_info("events.child")["expected_params"] == {
+        "data",
+        "extra",
+    }
+
+
+def test_named_kwargs_subscriber_cannot_require_unknown_contract_key() -> None:
+    def fixed(data: str) -> None:
+        pass
+
+    def flexible(other: str, **kwargs: Any) -> None:
+        pass
+
+    broker.register_subscriber("events", fixed)
+
+    with pytest.raises(broker.SignatureMismatchError, match="parameter mismatch"):
+        broker.register_subscriber("events", flexible)
+
+
+def test_parent_transformer_can_supply_required_child_key() -> None:
+    received: list[tuple[str, int]] = []
+
+    def parent(data: str) -> None:
+        pass
+
+    def child(data: str, sequence: int) -> None:
+        received.append((data, sequence))
+
+    def add_sequence(namespace: str, kwargs: dict[str, Any]) -> dict[str, Any]:
+        assert namespace == "events.child"
+        return {**kwargs, "sequence": 1}
+
+    broker.register_subscriber("events", parent)
+    broker.register_subscriber("events.child", child)
+    broker.register_transformer("events", add_sequence)
+    broker.emit("events.child", data="test")
+
+    assert received == [("test", 1)]
+
+
+def test_validation_uses_payload_after_transformer_removes_key() -> None:
     def handler(data: str) -> None:
         pass
 
-    def level1_handler(data: str) -> None:
-        level1_called.append(True)
+    def remove_data(namespace: str, kwargs: dict[str, Any]) -> dict[str, Any]:
+        kwargs.pop("data")
+        return kwargs
 
-    def level2_handler(data: str) -> None:
-        level2_called.append(True)
+    broker.register_subscriber("events", handler)
+    broker.register_transformer("events", remove_data)
 
-    def specific_handler(data: str) -> None:
-        specific_called.append(True)
-
-    broker.register_subscriber("app.*", level1_handler)
-    broker.register_subscriber("app.module.*", level2_handler)
-    broker.register_subscriber("app.module.action", specific_handler)
-
-    broker.emit("app.module.action", data="test")
-
-    assert len(level1_called) == 1
-    assert len(level2_called) == 1
-    assert len(specific_called) == 1
+    with pytest.raises(broker.EmitArgumentError, match="data"):
+        broker.emit("events.child", data="test")
 
 
-def test_multiple_wildcard_levels_different_signatures_raises() -> None:
-    """
-    Test that different signatures at different wildcard levels raise
-    validation error.
-    """
-    broker.clear()
-
-    def level1_handler(data: str) -> None:
+def test_defaulted_callback_parameter_is_still_required() -> None:
+    def handler(data: str = "default") -> None:
         pass
 
-    def level2_handler(data: str, extra: int) -> None:
+    broker.register_subscriber("events", handler)
+
+    with pytest.raises(broker.EmitArgumentError, match="data"):
+        broker.emit("events")
+
+
+def test_hierarchy_uses_dot_boundaries() -> None:
+    received: list[str] = []
+
+    def handler(data: str) -> None:
+        received.append(data)
+
+    broker.register_subscriber("app", handler)
+    broker.emit("application.start", data="not-related")
+
+    assert received == []
+
+
+def test_parent_event_does_not_flow_down_to_child() -> None:
+    calls: list[str] = []
+
+    def parent(data: str) -> None:
+        calls.append("parent")
+
+    def child(data: str, extra: int) -> None:
+        calls.append("child")
+
+    broker.register_subscriber("app", parent)
+    broker.register_subscriber("app.child", child)
+    broker.emit("app", data="test")
+
+    assert calls == ["parent"]
+
+
+def test_unrelated_namespace_contract_does_not_validate_emit() -> None:
+    def system(filename: str) -> None:
         pass
 
-    broker.register_subscriber("app.*", level1_handler)
-    broker.register_subscriber("app.module.*", level2_handler)
-
-    with pytest.raises(broker.EmitArgumentError) as exc_info:
-        broker.emit("app.module.action", data="test", extra=42)
-
-    assert "app.*" in str(exc_info.value)
-
-
-def test_kwargs_wildcard_accepts_any_specific_signature() -> None:
-    """Test that wildcard with **kwargs accepts any specific namespace signature."""
-    broker.clear()
-    wildcard_called: list[dict] = []
-    specific_called: list[str] = []
-
-    def wildcard_handler(**kwargs: Any) -> None:
-        wildcard_called.append(kwargs)
-
-    def specific_handler(filename: str, size: int) -> None:
-        specific_called.append(filename)
-
-    broker.register_subscriber("system.*", wildcard_handler)
-    broker.register_subscriber("system.io.file", specific_handler)
-
-    broker.emit("system.io.file", filename="test.txt", size=1024)
-
-    assert len(wildcard_called) == 1
-    assert wildcard_called[0] == {"filename": "test.txt", "size": 1024}
-    assert len(specific_called) == 1
-
-
-def test_specific_kwargs_accepts_any_wildcard_signature() -> None:
-    """Test that specific with **kwargs accepts any wildcard signature."""
-    broker.clear()
-    wildcard_called: list[str] = []
-    specific_called: list[dict] = []
-
-    def wildcard_handler(data: str) -> None:
-        wildcard_called.append(data)
-
-    def specific_handler(**kwargs: Any) -> None:
-        specific_called.append(kwargs)
-
-    broker.register_subscriber("system.*", wildcard_handler)
-    broker.register_subscriber("system.io.file", specific_handler)
-
-    broker.emit("system.io.file", data="test")
-
-    assert len(wildcard_called) == 1
-    assert len(specific_called) == 1
-
-
-def test_missing_required_arg_for_wildcard_raises() -> None:
-    """Test that missing a required argument for wildcard subscriber raises error."""
-    broker.clear()
-
-    def wildcard_handler(filename: str, size: int) -> None:
+    def app(data: str) -> None:
         pass
 
-    def specific_handler(filename: str) -> None:
-        pass
-
-    broker.register_subscriber("system.*", wildcard_handler)
-    broker.register_subscriber("system.io.file", specific_handler)
-
-    # Missing 'size' that wildcard expects
-    with pytest.raises(broker.EmitArgumentError) as exc_info:
-        broker.emit("system.io.file", filename="test.txt")
-
-    assert "system.*" in str(exc_info.value)
-    assert "size" in str(exc_info.value)
-
-
-def test_extra_arg_for_wildcard_raises() -> None:
-    """Test that providing extra argument not expected by wildcard raises error."""
-    broker.clear()
-
-    def wildcard_handler(filename: str) -> None:
-        pass
-
-    def specific_handler(filename: str, extra: str) -> None:
-        pass
-
-    broker.register_subscriber("system.*", wildcard_handler)
-    broker.register_subscriber("system.io.file", specific_handler)
-
-    # 'extra' not expected by wildcard
-    with pytest.raises(broker.EmitArgumentError) as exc_info:
-        broker.emit("system.io.file", filename="test.txt", extra="data")
-
-    assert "system.*" in str(exc_info.value)
-
-
-def test_three_level_namespace_validation() -> None:
-    """Test validation across three namespace levels (root.*, root.child.*, root.child.grandchild)."""
-    broker.clear()
-
-    def root_handler(data: str, level: int) -> None:
-        pass
-
-    def child_handler(data: str, level: int) -> None:
-        pass
-
-    def grandchild_handler(data: str, level: int) -> None:
-        pass
-
-    broker.register_subscriber("root.*", root_handler)
-    broker.register_subscriber("root.child.*", child_handler)
-    broker.register_subscriber("root.child.grandchild", grandchild_handler)
-
-    # Should work fine - all have same signature
-    broker.emit("root.child.grandchild", data="test", level=3)
-
-    # Should fail - missing 'level'
-    with pytest.raises(broker.EmitArgumentError):
-        broker.emit("root.child.grandchild", data="test")
-
-
-def test_wildcard_only_validates_when_matched() -> None:
-    """Test that wildcard only validates when it actually matches the emitted namespace."""
-    broker.clear()
-
-    def system_handler(filename: str, size: int) -> None:
-        pass
-
-    def app_handler(data: str) -> None:
-        pass
-
-    broker.register_subscriber("system.*", system_handler)
-    broker.register_subscriber("app.action", app_handler)
-
-    # Should NOT raise - system.* doesn't match app.action
+    broker.register_subscriber("system", system)
+    broker.register_subscriber("app", app)
     broker.emit("app.action", data="test")
 
-    # Should raise - system.* matches and expects different args
-    with pytest.raises(broker.EmitArgumentError):
-        broker.emit("system.io.file", data="test")
 
-
-def test_exact_namespace_not_affected_by_unrelated_wildcard() -> None:
-    """Test that exact namespace validation is not affected by unrelated wildcards."""
-    broker.clear()
-
-    def exact_handler(value: int) -> None:
+def test_wildcard_namespace_syntax_is_rejected() -> None:
+    def subscriber(data: str) -> None:
         pass
 
-    def unrelated_wildcard(data: str) -> None:
-        pass
+    def transformer(namespace: str, kwargs: dict[str, Any]) -> dict[str, Any]:
+        return kwargs
 
-    broker.register_subscriber("config.setting", exact_handler)
-    broker.register_subscriber("system.*", unrelated_wildcard)
+    operations: list[Callable[[], object]] = [
+        lambda: broker.register_subscriber("events.*", subscriber),
+        lambda: broker.register_transformer("events.*", transformer),
+        lambda: broker.emit("events.*", data="test"),
+        lambda: broker.stage("events.*", data="test"),
+        lambda: broker.get_matching_namespaces("events.*"),
+    ]
 
-    # Should work - system.* doesn't match config.setting
-    broker.emit("config.setting", value=42)
-
-
-def test_parent_wildcard_validates_child_emit() -> None:
-    """Test that parent wildcard validates arguments when child namespace is emitted."""
-    broker.clear()
-
-    def parent_handler(x: int, y: int) -> None:
-        pass
-
-    broker.register_subscriber("math.*", parent_handler)
-
-    # Should work
-    broker.emit("math.add", x=1, y=2)
-
-    # Should fail - wrong args
-    with pytest.raises(broker.EmitArgumentError):
-        broker.emit("math.multiply", a=3, b=4)
-
-
-def test_child_subscription_validates_against_existing_parent() -> None:
-    """Test that subscribing to child validates against existing parent wildcard."""
-    broker.clear()
-
-    def parent_handler(data: str) -> None:
-        pass
-
-    broker.register_subscriber("events.*", parent_handler)
-
-    # This should work - same signature as parent
-    def child_handler(data: str) -> None:
-        pass
-
-    broker.register_subscriber("events.click", child_handler)
-    broker.emit("events.click", data="test")
-
-    # This should fail at emit time due to parent wildcard
-    def bad_child_handler(value: int) -> None:
-        pass
-
-    broker.register_subscriber("events.hover", bad_child_handler)
-
-    with pytest.raises(broker.EmitArgumentError):
-        broker.emit("events.hover", value=10)
+    for operation in operations:
+        with pytest.raises(
+            DeprecationWarning,
+            match="Wildcard namespace syntax was deprecated in v2.0.0. Register the parent namespace instead",
+        ):
+            operation()

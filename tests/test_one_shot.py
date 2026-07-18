@@ -186,33 +186,33 @@ def test_one_shot_on_one_namespace_does_not_affect_another():
     assert calls == ["from_one", "from_two"]
 
 
-# -----Wildcard Namespaces-----------------------------------------------------
+# -----Hierarchical Namespaces-------------------------------------------------
 
 
-def test_one_shot_fires_on_wildcard_match():
+def test_one_shot_fires_on_descendant_event():
     called = []
 
     def handler(**kwargs: object) -> None:
         called.append(kwargs)
 
-    broker.register_subscriber("test.*", handler, once=True)
+    broker.register_subscriber("test", handler, once=True)
     broker.emit("test.foo", **{})
 
     assert len(called) == 1
 
 
-def test_one_shot_wildcard_unregistered_after_first_match():
+def test_one_shot_parent_unregistered_after_first_match():
     called = []
 
     def handler(**kwargs: object) -> None:
         called.append(True)
 
-    broker.register_subscriber("test.*", handler, once=True)
+    broker.register_subscriber("test", handler, once=True)
     broker.emit("test.foo")
     broker.emit("test.bar")
 
     assert len(called) == 1
-    assert not broker.is_subscribed(handler, "test.*")
+    assert not broker.is_subscribed(handler, "test")
 
 
 # -----Bound Methods-----------------------------------------------------------

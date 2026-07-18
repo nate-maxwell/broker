@@ -19,10 +19,9 @@ import broker
 # -----------------------------------------------------------------------------
 
 
-def test_wildcard_parent_receives_child_events() -> None:
+def test_parent_receives_child_events() -> None:
     """
-    Test that a parent wildcard subscriber receives events from child
-    namespaces.
+    Test that a parent subscriber receives events from child namespaces.
     """
     broker.clear()
     parent_invoked: list[bool] = []
@@ -36,12 +35,12 @@ def test_wildcard_parent_receives_child_events() -> None:
     def child_callback(**kwargs: Any) -> None:
         child_invoked.append(True)
 
-    broker.register_subscriber("test.*", parent_callback)
+    broker.register_subscriber("test", parent_callback)
     broker.register_subscriber("test.child", child_callback)
     broker.emit("test.child")
 
-    # Assert - both parent wildcard and exact child should receive the event
-    assert len(parent_invoked) == 1  # Parent gets it via wildcard match
+    # Assert - both parent and exact child should receive the event
+    assert len(parent_invoked) == 1
     assert len(child_invoked) == 1  # Child gets it via exact match
 
 

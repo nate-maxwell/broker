@@ -1,17 +1,26 @@
-import inspect
-from typing import Callable
+"""
+# Primary registration logic
 
-from broker import subscriber
-from broker import transformer
-from broker import function
+The business logic for validating, adding, and removing subscribers and
+transformers with the primary namespace registry.
+"""
+
+import inspect
+import weakref
+from typing import Any
+from typing import Callable
+from typing import TypeAlias
+from typing import Union
+
+from broker import signature
 from broker import introspection
 from broker import namespaces
 from broker import routing
+from broker import subscriber
+from broker import transformer
 from broker.private import registry
 
-
 __all__ = [
-    "SignatureMismatchError",
     "register_subscriber",
     "subscribe",
     "unregister_subscriber",
@@ -22,9 +31,7 @@ __all__ = [
     "unregister_transformer_all",
 ]
 
-
-class SignatureMismatchError(Exception):
-    """Raised when callback signatures don't match for a namespace."""
+_NamespaceContract: TypeAlias = tuple[str, registry.NamespaceEntry, set[str]]
 
 
 # -----Subscribers-------------------------------------------------------------
@@ -40,7 +47,7 @@ def register_subscriber(
     Register a callback function to a namespace.
 
     Args:
-        namespace (str): Event namespace (e.g., 'system.io.file_open' or 'system.*').
+        namespace (str): Event namespace (e.g., 'system.io.file_open').
         callback (Callable): Function to call when events are emitted. Can be
             sync or async.
         priority (int): The priority used for callback execution order.
@@ -54,7 +61,22 @@ def register_subscriber(
         Emits a notify event when a namespace is created and when a subscriber
         is registered. Notify emits the used namespace.
     """
-    weak_callback = function.make_weak_ref(
+    registry.validate_namespace(namespace)
+    callback_params = signature.get_callback_params(callback)
+    accepts_kwargs = signature.callback_accepts_kwargs(callback)
+    existing_entry = registry.NAMESPACE_REGISTRY.get(namespace)
+    subscriber_signature, descendant_signature_updates = (
+        _get_validated_subscriber_signature(
+            namespace=namespace,
+            existing_signature=(
+                existing_entry.signature if existing_entry is not None else None
+            ),
+            callback_params=callback_params,
+            accepts_kwargs=accepts_kwargs,
+        )
+    )
+
+    weak_callback = _make_weak_ref(
         callback=callback,
         namespace=namespace,
         on_collected_callback=_on_subscriber_collected,
@@ -68,14 +90,16 @@ def register_subscriber(
     )
 
     is_new_namespace = registry.ensure_namespace_exists(namespace)
-    entry = registry.NAMESPACE_REGISTRY[namespace]
-    _validate_and_set_subscriber_signature(
-        namespace=namespace,
-        entry=entry,
-        callback_params=function.get_callback_params(callback),
-    )
-
-    entry.subscribers.append(sub)
+    namespace_entry = registry.NAMESPACE_REGISTRY[namespace]
+    namespace_entry.signature = subscriber_signature
+    namespace_entry.subscribers.append(sub)
+    for (
+        descendant_namespace,
+        descendant_signature,
+    ) in descendant_signature_updates.items():
+        registry.NAMESPACE_REGISTRY[descendant_namespace].signature = (
+            descendant_signature
+        )
 
     if is_new_namespace:
         routing.notify_new_namespace_created(namespace)
@@ -87,24 +111,161 @@ def register_subscriber(
         routing.emit(namespace=namespaces.BROKER_ON_SUBSCRIBER_ADDED, using=namespace)
 
 
-def _validate_and_set_subscriber_signature(
+def _get_validated_subscriber_signature(
     namespace: str,
-    entry: registry.NamespaceEntry,
-    callback_params: set[str] | None,
+    existing_signature: set[str] | None,
+    callback_params: set[str],
+    accepts_kwargs: bool,
+) -> tuple[set[str] | None, dict[str, set[str]]]:
+    """Validate a subscriber without mutating the namespace registry."""
+    if existing_signature is not None:
+        _validate_existing_signature(
+            namespace=namespace,
+            existing_signature=existing_signature,
+            callback_params=callback_params,
+            accepts_kwargs=accepts_kwargs,
+        )
+        return existing_signature, {}
+
+    # A callback with only **kwargs accepts any future contract but does not
+    # establish one itself.
+    if accepts_kwargs and not callback_params:
+        return None, {}
+
+    related_contracts = _get_related_namespace_contracts(namespace)
+    ancestor_contracts = _get_ancestor_contracts(namespace, related_contracts)
+    subscriber_signature = _build_subscriber_signature(
+        namespace=namespace,
+        callback_params=callback_params,
+        accepts_kwargs=accepts_kwargs,
+        ancestor_contracts=ancestor_contracts,
+    )
+    descendant_updates = _get_descendant_signature_updates(
+        namespace=namespace,
+        subscriber_signature=subscriber_signature,
+        related_contracts=related_contracts,
+    )
+    return subscriber_signature, descendant_updates
+
+
+def _validate_existing_signature(
+    namespace: str,
+    existing_signature: set[str],
+    callback_params: set[str],
+    accepts_kwargs: bool,
 ) -> None:
-    if entry.signature is None:
-        entry.signature = callback_params
+    """Ensure a callback can satisfy an established namespace contract."""
+    is_compatible = (
+        callback_params <= existing_signature
+        if accepts_kwargs
+        else callback_params == existing_signature
+    )
+    if is_compatible:
         return
 
-    existing_params = entry.signature
-    if existing_params is None or callback_params is None:
-        entry.signature = None
-    elif existing_params != callback_params:
-        raise SignatureMismatchError(
-            f"Subscriber parameter mismatch for namespace '{namespace}'. "
-            f"Expected parameters: {sorted(existing_params)}, "
-            f"but got: {sorted(callback_params)}"
+    raise signature.SignatureMismatchError(
+        f"Subscriber parameter mismatch for namespace '{namespace}'. "
+        f"Expected parameters: {sorted(existing_signature)}, "
+        f"but got: {sorted(callback_params)}"
+    )
+
+
+def _get_related_namespace_contracts(namespace: str) -> list[_NamespaceContract]:
+    """Collect concrete contracts above or below a namespace candidate."""
+    contracts: list[_NamespaceContract] = []
+    for registered_namespace, entry in registry.NAMESPACE_REGISTRY.items():
+        registered_signature = entry.signature
+        if registered_signature is None or registered_namespace == namespace:
+            continue
+
+        if registry.matches(namespace, registered_namespace) or registry.matches(
+            registered_namespace, namespace
+        ):
+            contracts.append((registered_namespace, entry, registered_signature))
+
+    return contracts
+
+
+def _get_ancestor_contracts(
+    namespace: str, related_contracts: list[_NamespaceContract]
+) -> list[_NamespaceContract]:
+    """Return concrete contracts inherited by a namespace candidate."""
+    return [
+        contract
+        for contract in related_contracts
+        if registry.matches(namespace, contract[0])
+    ]
+
+
+def _build_subscriber_signature(
+    namespace: str,
+    callback_params: set[str],
+    accepts_kwargs: bool,
+    ancestor_contracts: list[_NamespaceContract],
+) -> set[str]:
+    """Build a new namespace contract from callback and ancestor requirements."""
+    inherited_params = set().union(
+        *(ancestor_signature for _, _, ancestor_signature in ancestor_contracts)
+    )
+
+    if accepts_kwargs:
+        return callback_params | inherited_params
+
+    for registered_namespace, _, ancestor_signature in ancestor_contracts:
+        if not ancestor_signature <= callback_params:
+            raise signature.SignatureMismatchError(
+                f"Subscriber parameters for child namespace '{namespace}' "
+                f"must include parent namespace '{registered_namespace}' "
+                f"parameters: {sorted(ancestor_signature)}"
+            )
+
+    return callback_params
+
+
+def _get_descendant_signature_updates(
+    namespace: str,
+    subscriber_signature: set[str],
+    related_contracts: list[_NamespaceContract],
+) -> dict[str, set[str]]:
+    """
+    Validate descendants and return safe flexible-contract expansions.
+
+    This makes parent registration order-independent. If a child namespace,
+    "app.child" is already created, and a parent namespace, "app" is created,
+    every child namespace is checked to make sure
+    - the child contract already includes the new parent requirements
+    - if it lacks a requirement, then all the current subscribers accept **kwargs
+    - if any subscriber cannot accept the newly inherited parent argument, it
+      raises signature.SignatureMismatchError.
+    """
+    updates: dict[str, set[str]] = {}
+    for registered_namespace, entry, descendant_signature in related_contracts:
+        if not registry.matches(registered_namespace, namespace):
+            continue
+
+        if subscriber_signature <= descendant_signature:
+            continue
+
+        if _all_subscribers_accept_kwargs(entry):
+            updates[registered_namespace] = descendant_signature | subscriber_signature
+            continue
+
+        raise signature.SignatureMismatchError(
+            f"Subscriber parameters for parent namespace '{namespace}' "
+            f"must be present in child namespace "
+            f"'{registered_namespace}': {sorted(descendant_signature)}"
         )
+
+    return updates
+
+
+def _all_subscribers_accept_kwargs(entry: registry.NamespaceEntry) -> bool:
+    """Return whether every live subscriber can accept an expanded contract."""
+    callbacks = [sub.callback for sub in entry.subscribers]
+    live_callbacks = [callback for callback in callbacks if callback is not None]
+    return bool(live_callbacks) and all(
+        signature.callback_accepts_kwargs(callback) for callback in live_callbacks
+    )
 
 
 def subscribe(
@@ -142,12 +303,15 @@ def unregister_subscriber(namespace: str, callback: subscriber.SUBSCRIBER_SIG) -
         namespace is removed from consolidation. Notify emits the used
         namespace.
     """
+    registry.validate_namespace(namespace)
     if namespace not in registry.NAMESPACE_REGISTRY:
         return
 
     entry = registry.NAMESPACE_REGISTRY[namespace]
     items = entry.subscribers
     entry.subscribers = [i for i in items if i.callback != callback]
+    if not entry.subscribers:
+        entry.signature = None
 
     if (
         not namespace.startswith(namespaces.NOTIFY_NAMESPACE_ROOT)
@@ -176,6 +340,8 @@ def _on_subscriber_collected(namespace: str) -> None:
         entry = registry.NAMESPACE_REGISTRY[namespace]
         items = entry.subscribers
         entry.subscribers = [i for i in items if i.callback is not None]
+        if not entry.subscribers:
+            entry.signature = None
 
         namespaces.cleanup_namespace_if_empty(namespace)
 
@@ -204,12 +370,13 @@ def register_transformer(
     - Log/validate events
 
     Args:
-        namespace (str): Namespace pattern (supports wildcards like 'system.*').
+        namespace (str): Namespace whose events and descendants are transformed.
         callback (TRANSFORMER): Function that receives (namespace, kwargs)
             and returns modified kwargs or None to block.
         priority (int): Execution order (higher = earlier, default 0).
     """
-    weak_transformer = function.make_weak_ref(
+    registry.validate_namespace(namespace)
+    weak_transformer = _make_weak_ref(
         callback=callback,
         namespace=namespace,
         on_collected_callback=_on_transformer_collected,
@@ -265,6 +432,7 @@ def unregister_transformer(
         namespace (str): The namespace the transformer is registered to.
         callback (TRANSFORMER): The transformer function to remove.
     """
+    registry.validate_namespace(namespace)
     if namespace not in registry.NAMESPACE_REGISTRY:
         return
 
@@ -310,3 +478,20 @@ def _on_transformer_collected(namespace: str) -> None:
         routing.emit(
             namespace=namespaces.BROKER_ON_TRANSFORMER_COLLECTED, using=namespace
         )
+
+
+def _make_weak_ref(
+    callback: subscriber.SUBSCRIBER_SIG,
+    namespace: str,
+    on_collected_callback: Callable[[str], None],
+) -> Union[weakref.ref[Any], weakref.WeakMethod]:
+    """Create the appropriate weak reference for any callback type."""
+
+    def cleanup(_: Union[weakref.ref[Any], weakref.WeakMethod]) -> None:
+        # Arg needed to add for weakref creation.
+        on_collected_callback(namespace)
+
+    if hasattr(callback, "__self__"):
+        return weakref.WeakMethod(callback, cleanup)
+    else:
+        return weakref.ref(callback, cleanup)

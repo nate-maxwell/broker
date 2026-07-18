@@ -63,40 +63,43 @@ More info can be found [here](./docs/Emitting.md).
 
 ## Signature Validation
 
-The broker validates that all subscribers and emitters use consistent argument signatures:
+The first subscriber establishes the required arguments for a namespace. Child
+namespaces inherit those arguments and may add more:
 
 ```python
-@broker.subscribe('user.login')
-def first_subscriber(username: str, user_id: int) -> None:
-    pass
+@broker.subscribe('user')
+def on_user(username: str) -> None:
+    print(username)
 
-# This will raise an exception - signature mismatch
 @broker.subscribe('user.login')
-def wrong_signature(username: str, email: str) -> None:  # ❌ Different args
-    pass
+def on_login(username: str, user_id: int) -> None:
+    print(user_id)
 
-# This will also raise an exception
-broker.emit('user.login', username='alice', email='[email protected]')  # ❌ Wrong args
+broker.emit('user.login', username='alice', user_id=42)
+# Output: Alice
+# Output: 42
 ```
 
-The first subscriber sets the expected signature for that namespace.
+Child events bubble to both subscribers of parent namespaces. Each subscriber
+receives only it's named arguments unless it explicitly accepts `**kwargs`.
+Transformers run before required arguments are validated.
 
 ## Transformers
 
-Transformers intercept and modify event data before it reaches subscribers. They execute in priority order and are scoped to specific namespaces.
+Transformers intercept and modify event data before it reaches subscribers.
+They execute in priority order and obey namespaces just like subscribers.
 
 ### Basic Transformer
 
 ```python
 import datetime
 
+@broker.transform("system", priority=10)
 def add_timestamp(namespace: str, kwargs: dict) -> dict:
     """Add timestamp to all events."""
     now = datetime.datetime.now().time().isoformat()[:-4]
     kwargs['timestamp'] = now
     return kwargs
-
-broker.register_transformer('system.*', add_timestamp, priority=10)
 
 @broker.subscribe('system.startup')
 def on_startup(timestamp: str) -> None:

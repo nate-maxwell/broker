@@ -112,12 +112,12 @@ def test_subscribe_decorator_with_async_function() -> None:
     assert invoked == ["async_test"]
 
 
-def test_subscribe_decorator_with_wildcard() -> None:
-    """Test that @subscribe decorator works with wildcard namespaces."""
+def test_subscribe_decorator_with_parent_namespace() -> None:
+    """Test that @subscribe receives descendant namespace events."""
     broker.clear()
     invoked: list[str] = []
 
-    @broker.subscribe("system.*")
+    @broker.subscribe("system")
     def wildcard_handler(action: str) -> None:
         invoked.append(action)
 

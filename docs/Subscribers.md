@@ -14,19 +14,29 @@ def print_filename(filename: str) -> None:
 broker.register_subscriber("system.io.file", print_filename)
 ```
 
-### Wildcard Subscriptions
+### Hierarchical Subscriptions
 
-Subscribe to multiple namespaces using `*`:
+Events bubble through their parent namespaces. A child must include its
+parent's required arguments, but may add its own:
 
 ```python
-# Listen to all events under 'file'
-@broker.subscribe("file.*")
-def on_any_file_event(**kwargs) -> None:  # Must accept **kwargs
-    print(f'File event: {kwargs}')
+@broker.subscribe("file")
+def on_file_event(filename: str) -> None:
+    print(f'File event: {filename}')
+
+@broker.subscribe("file.saved")
+def on_file_saved(filename: str, size: int) -> None:
+    print(f'Saved {filename} ({size} bytes)')
 
 broker.emit('file.saved', filename='data.json', size=2048)
-broker.emit('file.deleted', filename='temp.txt', size=512)
+
+# Output: File event: data.json
+# Output: Saved data.json (2048 bytes)
 ```
+
+Both callbacks run. The parent callback receives only `filename`.
+
+As of version 2.0.0, namespace strings containing `*` are no longer supported.
 
 ### Priorities
 

@@ -16,6 +16,7 @@ from broker import routing
 from broker.private.registry import NAMESPACE_REGISTRY
 from broker.private.registry import STAGED_REGISTRY
 from broker.private.registry import matches
+from broker.private.registry import validate_namespace
 
 if TYPE_CHECKING:
     from broker.subscriber import Subscriber
@@ -85,6 +86,7 @@ def get_subscriber_count(namespace: str) -> int:
     Returns:
         int: Number of subscribers (including dead weak references).
     """
+    validate_namespace(namespace)
     fetched = NAMESPACE_REGISTRY.get(namespace, None)
     if fetched is None:
         return 0
@@ -101,6 +103,7 @@ def get_live_subscriber_count(namespace: str) -> int:
     Returns:
         Number of subscribers with live callbacks.
     """
+    validate_namespace(namespace)
     if namespace not in NAMESPACE_REGISTRY:
         return 0
     return sum(
@@ -121,6 +124,7 @@ def is_subscribed(callback: "SUBSCRIBER_SIG", namespace: str) -> bool:
     Returns:
         bool: True if callback is subscribed to namespace, False otherwise.
     """
+    validate_namespace(namespace)
     if namespace not in NAMESPACE_REGISTRY:
         return False
 
@@ -168,7 +172,10 @@ def get_subscribers(namespace: str) -> list["Subscriber"]:
         list[subscriber.Subscriber]: List of Subscriber objects. May include
             dead references.
     """
-    return list(NAMESPACE_REGISTRY.get(namespace, {}).subscribers)
+    validate_namespace(namespace)
+    if namespace not in NAMESPACE_REGISTRY:
+        return []
+    return list(NAMESPACE_REGISTRY[namespace].subscribers)
 
 
 def get_live_subscribers(namespace: str) -> list["Subscriber"]:
@@ -181,6 +188,7 @@ def get_live_subscribers(namespace: str) -> list["Subscriber"]:
         list[subscriber.Subscriber]: List of Subscriber objects with live
             callbacks only.
     """
+    validate_namespace(namespace)
     if namespace not in NAMESPACE_REGISTRY:
         return []
 
@@ -203,6 +211,7 @@ def get_transformer_count(namespace: str) -> int:
     Returns:
         int: Number of transformers (including dead weak references).
     """
+    validate_namespace(namespace)
     fetched = NAMESPACE_REGISTRY.get(namespace, None)
     if fetched is None:
         return 0
@@ -219,6 +228,7 @@ def get_live_transformer_count(namespace: str) -> int:
     Returns:
         Number of transformers with live callbacks.
     """
+    validate_namespace(namespace)
     if namespace not in NAMESPACE_REGISTRY:
         return 0
 
@@ -241,6 +251,7 @@ def is_transformed(callback: "TRANSFORMER_SIG", namespace: str) -> bool:
         bool: True if callback is registered as a transformer for namespace,
             False otherwise.
     """
+    validate_namespace(namespace)
     if namespace not in NAMESPACE_REGISTRY:
         return False
 
@@ -290,6 +301,7 @@ def get_transformers(namespace: str) -> list["Transformer"]:
         list[transformer.Transformer]: List of Transformer objects. May include
             dead references.
     """
+    validate_namespace(namespace)
     entries = NAMESPACE_REGISTRY.get(namespace, None)
     if entries is None:
         return []
@@ -307,6 +319,7 @@ def get_live_transformers(namespace: str) -> list["Transformer"]:
         list[transformer.Transformer]: List of Transformer objects with live
             callbacks only.
     """
+    validate_namespace(namespace)
     if namespace not in NAMESPACE_REGISTRY:
         return []
 
@@ -343,6 +356,7 @@ def get_staged_count(namespace: Optional[str] = None) -> int:
         int: Number of staged events.
     """
     if namespace is not None:
+        validate_namespace(namespace)
         return len(STAGED_REGISTRY.get(namespace, []))
     return sum(len(events) for events in STAGED_REGISTRY.values())
 
@@ -350,26 +364,24 @@ def get_staged_count(namespace: Optional[str] = None) -> int:
 # -----General Introspection Methods-----------------------------
 
 
-def get_matching_namespaces(pattern: str) -> list[str]:
+def get_matching_namespaces(namespace: str) -> list[str]:
     """
-    Get all namespaces that match a pattern (including wildcards).
+    Get a registered namespace and all of its registered descendants.
 
     Args:
-        pattern (str): Pattern to match (e.g., 'system.*' or 'app.module.action').
+        namespace (str): Root namespace (e.g., 'system' or 'app.module').
     Returns:
         list[str]: List of matching namespace strings.
     Example:
-        broker.get_matching_namespaces('system.*')
+        broker.get_matching_namespaces('system')
         ['system.io.file', 'system.io.network']
     """
-    matching = []
-    for namespace in NAMESPACE_REGISTRY.keys():
-        # Pattern 'system.io.*' should match namespace 'system.io.file'
-        # OR namespace 'system.*' should match pattern 'system.io.file'
-        if matches(namespace, pattern) or matches(pattern, namespace):
-            matching.append(namespace)
-
-    return sorted(matching)
+    validate_namespace(namespace)
+    return sorted(
+        registered_namespace
+        for registered_namespace in NAMESPACE_REGISTRY
+        if matches(registered_namespace, namespace)
+    )
 
 
 def get_namespace_info(namespace: str) -> Optional[dict[str, object]]:
@@ -392,6 +404,7 @@ def get_namespace_info(namespace: str) -> Optional[dict[str, object]]:
             'priorities': [1, 5, 10]
         }
     """
+    validate_namespace(namespace)
     if namespace not in NAMESPACE_REGISTRY:
         return None
 
@@ -593,4 +606,5 @@ def get_namespaces() -> list[str]:
 
 def namespace_exists(namespace: str) -> bool:
     """Check if a namespace exists..."""
+    validate_namespace(namespace)
     return namespace in NAMESPACE_REGISTRY

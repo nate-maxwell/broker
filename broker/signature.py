@@ -5,11 +5,7 @@ Not intended for direct use, but may be of some utility to users.
 """
 
 import inspect
-import weakref
 from typing import Any
-from typing import Callable
-from typing import Optional
-from typing import Union
 
 from broker import subscriber
 from broker.private import registry
@@ -19,45 +15,45 @@ class EmitArgumentError(Exception):
     """Raised when emit arguments don't match subscriber signatures."""
 
 
-def make_weak_ref(
-    callback: subscriber.SUBSCRIBER_SIG,
-    namespace: str,
-    on_collected_callback: Callable[[str], None],
-) -> Union[weakref.ref[Any], weakref.WeakMethod]:
-    """Create the appropriate weak reference for any callback type."""
-
-    def cleanup(_: Union[weakref.ref[Any], weakref.WeakMethod]) -> None:
-        # Arg needed to add for weakref creation.
-        on_collected_callback(namespace)
-
-    if hasattr(callback, "__self__"):
-        return weakref.WeakMethod(callback, cleanup)
-    else:
-        return weakref.ref(callback, cleanup)
+class SignatureMismatchError(Exception):
+    """Raised when subscriber signatures don't match for a namespace."""
 
 
-def get_callback_params(callback: subscriber.SUBSCRIBER_SIG) -> Optional[set[str]]:
+def get_callback_params(callback: subscriber.SUBSCRIBER_SIG) -> set[str]:
     """
     Extract parameter names from a callback function.
 
     Args:
         callback (CALLBACK): The callback function to inspect.
     Returns:
-        Optional[set[str]]: Set of parameter names, or None if callback
-            accepts **kwargs.
+        set[str]: Explicit parameter names accepted by the callback.
     """
     sig = inspect.signature(callback)
-
-    # **kwargs is not tracked
-    for param in sig.parameters.values():
-        if param.kind == inspect.Parameter.VAR_KEYWORD:
-            return None
 
     return {
         name
         for name, param in sig.parameters.items()
-        if param.kind != inspect.Parameter.VAR_POSITIONAL  # exclude *args
+        if param.kind
+        not in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD)
     }
+
+
+def callback_accepts_kwargs(callback: subscriber.SUBSCRIBER_SIG) -> bool:
+    """Return whether a callback explicitly accepts arbitrary keyword args."""
+    return any(
+        param.kind == inspect.Parameter.VAR_KEYWORD
+        for param in inspect.signature(callback).parameters.values()
+    )
+
+
+def get_callback_kwargs(
+    callback: subscriber.SUBSCRIBER_SIG, kwargs: dict[str, Any]
+) -> dict[str, Any]:
+    """Project an event payload to the arguments accepted by a callback."""
+    if callback_accepts_kwargs(callback):
+        return kwargs
+
+    return {name: kwargs[name] for name in get_callback_params(callback)}
 
 
 def validate_emit_args(namespace: str, kwargs: dict[str, Any]) -> None:
@@ -82,9 +78,11 @@ def validate_emit_args(namespace: str, kwargs: dict[str, Any]) -> None:
         if expected_params is None:
             continue
 
-        if provided_args != expected_params:
+        missing_params = expected_params - provided_args
+        if missing_params:
             raise EmitArgumentError(
                 f"Argument mismatch when emitting to '{namespace}'. "
-                f"Subscribers in '{reg_namespace}' expect: {sorted(expected_params)}, "
-                f"but got: {sorted(provided_args)}"
+                f"Subscribers in '{reg_namespace}' require: "
+                f"{sorted(expected_params)}, but the transformed payload is "
+                f"missing: {sorted(missing_params)}"
             )
