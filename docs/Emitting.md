@@ -2,12 +2,16 @@
 
 ### Synchronous Events
 
+Use `broker.emit()` to emit events to synchronous subscribers.
+
 ```python
 # Emits to all synchronous subscribers only
 broker.emit('process.data', value=42, status='ready')
 ```
 
 ### Asynchronous Events
+
+Use `broker.emit_async()` to emit events to asynchronous subscribers.
 
 ```python
 import asyncio
@@ -27,15 +31,6 @@ broker.emit('process.data', data='test')  # Only sync_handler runs
 
 # emit_async() calls both sync and async handlers
 await broker.emit_async('process.data', data='test')  # Both run
-```
-
-Staging is unaffected by pause — `stage()` always queues events regardless
-of pause state. Only dispatch is suppressed:
-```python
-with broker.paused():
-    broker.stage('file.saved', filename='test.exr')  # staged, not suppressed
-
-broker.emit_staged()  # delivered
 ```
 
 ### Staging Events
@@ -86,17 +81,28 @@ broker.clear_staged()  # discarded, nothing dispatched
 
 ### Pausing Emission
 
-The broker can be paused using the `broker.paused.PausedContext()` context manager.
+The broker can be paused using the `broker.PausedContext()` context manager.
 While paused, all calls to `emit()` and `emit_async()` are suppressed silently.
 Emission resumes automatically when the context exits, even if an exception
-is raised.
+is raised. Suppressed calls are not staged, they are simply discarded and will
+not emit after exiting the `PausedContext`.
 
 ```python
 import broker
 
-with broker.paused.PausedContext():
+with broker.PausedContext():
     broker.emit('file.saved', filename='test.exr')  # suppressed
     await broker.emit_async('render.done', frame=42)  # suppressed
 
 broker.emit('file.saved', filename='test.exr')  # delivered
+```
+
+Staging is unaffected by pausing — `stage()` always queues events regardless
+of pause state. Only dispatch is suppressed:
+```python
+with broker.PausedContext():
+    broker.stage('file.saved', filename='test.exr')  # staged, not suppressed
+    broker.emit_staged()  # suppressed, but not flushed
+
+broker.emit_staged()  # delivered
 ```

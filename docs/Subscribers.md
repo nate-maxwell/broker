@@ -80,3 +80,7 @@ emits to the same namespace will not trigger it:
 broker.emit('app.ready', status='ok')   # Prints: App came up: ok
 broker.emit('app.ready', status='ok')   # No output - already unregistered
 ```
+
+If a subscriber added to a namespace using `once` is removed and was the only
+subscriber in that namespace, the namespace is cleaned up just like when removing
+from subscribers manually.

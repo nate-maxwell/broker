@@ -168,6 +168,9 @@ def emit_staged(flush: bool = True) -> None:
         flush (bool): Whether to empty the current staging registry after
             emitting. Defaults to True.
     """
+    if _is_paused():
+        return
+
     namespaces_ = list(registry.STAGED_REGISTRY.keys())
     staged = {ns: list(registry.STAGED_REGISTRY[ns]) for ns in namespaces_}
 
@@ -187,6 +190,9 @@ async def emit_staged_async(flush: bool = True) -> None:
         flush (bool): Whether to empty the current staging registry after
             emitting. Defaults to True.
     """
+    if _is_paused():
+        return
+
     namespaces_ = list(registry.STAGED_REGISTRY.keys())
     staged = {ns: list(registry.STAGED_REGISTRY[ns]) for ns in namespaces_}
 

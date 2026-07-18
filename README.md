@@ -20,7 +20,7 @@ broker.emit('file.saved', filename='document.txt', size=1024)
 
 The broker comprises 5 components:
 
-- **The Broker** - The central event system
+- **The Registry** - The central event tracking system
 - **Namespaces** - Dot-notation event channels (e.g., `system.io.file_opened`)
 - **Subscribers** - Callbacks that receive events
 - **Transformers** - Middleware that modifies or filters events before delivery
