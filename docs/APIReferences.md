@@ -32,7 +32,7 @@
 
 - `get_namespaces()` - Returns all registered namespaces
 - `namespace_exists(namespace: str)` - Checks if a namespace exists...
-- `get_matching_namespaces(pattern: str)` - Get all namespaces that match a pattern (including wildcards)
+- `get_matching_namespaces(namespace: str)` - Get a namespace and all registered descendants
 - `get_namespace_info(namespace: str)` - Get detailed information about a namespace
 - `get_all_namespace_info()` - Get detailed information about all namespaces
 - `get_statistics()` - Get overall broker statistics

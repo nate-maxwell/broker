@@ -208,8 +208,8 @@ async def test_async_sequential_execution() -> None:
 
 
 @pytest.mark.asyncio
-async def test_async_wildcard_subscribers() -> None:
-    """Test that async subscribers work with wildcard namespaces."""
+async def test_async_parent_subscribers() -> None:
+    """Test that async subscribers receive descendant events."""
     broker.clear()
     wildcard_calls: list[str] = []
     specific_calls: list[str] = []
@@ -220,7 +220,7 @@ async def test_async_wildcard_subscribers() -> None:
     async def specific_handler(data: str) -> None:
         specific_calls.append(data)
 
-    broker.register_subscriber("system.*", wildcard_handler)
+    broker.register_subscriber("system", wildcard_handler)
     broker.register_subscriber("system.io.file", specific_handler)
 
     await broker.emit_async("system.io.file", data="test")

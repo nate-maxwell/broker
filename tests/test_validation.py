@@ -94,15 +94,15 @@ def test_emit_validates_arguments() -> None:
         broker.emit(namespace, filename="test.txt", mode="w")
 
 
-def test_wildcard_subscription_validates() -> None:
-    """Test that wildcard subscriptions validate against emitted events."""
+def test_parent_subscription_validates() -> None:
+    """Test that parent subscriptions validate descendant events."""
     broker.clear()
 
     # noinspection PyUnusedLocal
     def wildcard_callback(filename: str, size: int) -> None:
         pass
 
-    broker.register_subscriber("file.*", wildcard_callback)
+    broker.register_subscriber("file", wildcard_callback)
     broker.emit("file.save", filename="test.txt", size=1024)
 
     # Mismatched args should raise
@@ -110,8 +110,8 @@ def test_wildcard_subscription_validates() -> None:
         broker.emit("file.delete", path="test.txt")
 
 
-def test_specific_and_wildcard_must_match() -> None:
-    """Test that specific and wildcard subscribers must have compatible signatures."""
+def test_parent_and_child_contracts_must_be_compatible() -> None:
+    """Test that parent parameters must be a subset of child parameters."""
     broker.clear()
 
     # noinspection PyUnusedLocal
@@ -123,10 +123,8 @@ def test_specific_and_wildcard_must_match() -> None:
         pass
 
     broker.register_subscriber("file.save", specific_callback)
-    broker.register_subscriber("file.*", wildcard_callback)
-
-    with pytest.raises(broker.EmitArgumentError, match="Argument mismatch"):
-        broker.emit("file.save", filename="test.txt", size=1024)
+    with pytest.raises(broker.SignatureMismatchError, match="parent namespace"):
+        broker.register_subscriber("file", wildcard_callback)
 
 
 def test_kwargs_callback_accepts_any_emit() -> None:

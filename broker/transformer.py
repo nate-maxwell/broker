@@ -64,7 +64,7 @@ class Transformer(object):
     """Execution order - higher priorities run first."""
 
     namespace: str
-    """The namespace pattern this transformer applies to."""
+    """The namespace and descendants this transformer applies to."""
 
     @property
     def callback(self) -> Optional[TRANSFORMER_SIG]:

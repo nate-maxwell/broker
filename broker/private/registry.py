@@ -80,28 +80,29 @@ calls broker.emit_staged().
 """
 
 
-def matches(namespace: str, pattern: str) -> bool:
+def validate_namespace(namespace: str) -> None:
+    """Reject the wildcard syntax removed by hierarchical namespaces."""
+    if "*" in namespace:
+        raise DeprecationWarning(
+            "Wildcard namespace syntax was deprecated in v2.0.0. "
+            "Register the parent namespace instead."
+        )
+
+
+def matches(namespace: str, registered_namespace: str) -> bool:
     """
-    Check if an event namespace matches a pattern, typically another item's
-    namespace.
+    Check whether an emitted namespace is the same as or below a registered
+    namespace in the hierarchy.
 
     Args:
         namespace (str): The namespace where the event was emitted.
-        pattern (str): The namespace to check against.
+        registered_namespace (str): The subscriber or transformer namespace.
     Returns:
         bool: True if subscribers should receive the event.
     """
-    if namespace == pattern:
-        return True
-
-    # Wildcard match - subscriber wants all events under a root
-    if pattern.endswith(".*"):
-        # Although not strictly necessary to remove . and *, doing so adds
-        # slightly more validity to the check.
-        root = pattern[:-2]
-        return namespace.startswith(root + ".")
-
-    return False
+    return namespace == registered_namespace or namespace.startswith(
+        registered_namespace + "."
+    )
 
 
 def ensure_namespace_exists(namespace: str) -> bool:

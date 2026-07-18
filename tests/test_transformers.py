@@ -110,8 +110,8 @@ def test_transformer_priority_order() -> None:
     assert execution_order == ["high", "medium", "low"]
 
 
-def test_transformer_with_wildcard() -> None:
-    """Test that transformers work with wildcard namespaces."""
+def test_transformer_on_parent_namespace() -> None:
+    """Test that transformers apply to descendant namespaces."""
     broker.clear()
 
     received = []
@@ -123,7 +123,7 @@ def test_transformer_with_wildcard() -> None:
     def handler(**kwargs) -> None:
         received.append(kwargs)
 
-    broker.register_transformer("system.*", add_timestamp)
+    broker.register_transformer("system", add_timestamp)
     broker.register_subscriber("system.io.file", handler)
 
     broker.emit("system.io.file", data="test")
@@ -263,7 +263,7 @@ def test_transformer_receives_namespace() -> None:
     def handler(data: str) -> None:
         pass
 
-    broker.register_transformer("system.*", transformer)
+    broker.register_transformer("system", transformer)
     broker.register_subscriber("system.io.file", handler)
 
     broker.emit("system.io.file", data="test")

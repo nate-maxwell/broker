@@ -291,8 +291,8 @@ def test_exception_only_affects_one_namespace() -> None:
     assert "namespace2" in calls
 
 
-def test_exception_with_wildcard_subscribers() -> None:
-    """Test exception handling with wildcard namespace subscriptions."""
+def test_exception_with_parent_subscribers() -> None:
+    """Test exception handling with parent namespace subscriptions."""
     broker.clear()
     broker.set_subscriber_exception_handler(handlers.silent_subscriber_exception)
     calls: list[str] = []
@@ -304,7 +304,7 @@ def test_exception_with_wildcard_subscribers() -> None:
     def specific_handler(data: str) -> None:
         calls.append("specific")
 
-    broker.register_subscriber("system.*", failing_wildcard, priority=10)
+    broker.register_subscriber("system", failing_wildcard, priority=10)
     broker.register_subscriber("system.io.file", specific_handler, priority=5)
 
     broker.emit("system.io.file", data="test")

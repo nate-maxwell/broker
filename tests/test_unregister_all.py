@@ -119,30 +119,30 @@ def test_namespace_survives_when_other_subscribers_remain():
     assert broker.namespace_exists("test.one")
 
 
-# -----Wildcard Subscriptions--------------------------------------------------
+# -----Hierarchical Subscriptions----------------------------------------------
 
 
-def test_removes_from_wildcard_namespace():
+def test_removes_from_parent_namespace():
     def handler(**kwargs: object) -> None:
         pass
 
-    broker.register_subscriber("test.*", handler)
+    broker.register_subscriber("test", handler)
     broker.unregister_subscriber_all(handler)
 
-    assert not broker.is_subscribed(handler, "test.*")
+    assert not broker.is_subscribed(handler, "test")
 
 
-def test_removes_from_mix_of_exact_and_wildcard_namespaces():
+def test_removes_from_parent_and_child_namespaces():
     def handler(**kwargs: object) -> None:
         pass
 
     broker.register_subscriber("test.one", handler)
-    broker.register_subscriber("test.*", handler)
+    broker.register_subscriber("test", handler)
 
     broker.unregister_subscriber_all(handler)
 
     assert not broker.is_subscribed(handler, "test.one")
-    assert not broker.is_subscribed(handler, "test.*")
+    assert not broker.is_subscribed(handler, "test")
 
 
 # -----Method Subscribers------------------------------------------------------

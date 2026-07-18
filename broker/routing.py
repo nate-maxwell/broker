@@ -1,15 +1,13 @@
 """
 # Primary event routing logic
 
-The business logic layer with public hooks for users and other api objects.
-
-For a complete breakdown of broker functionality, read the project readme.
+The business logic for sending payloads to their intended destinations.
 """
 
 from typing import Any
 from typing import Optional
 
-from broker import function
+from broker import signature
 from broker import handlers
 from broker import namespaces
 from broker import subscriber
@@ -91,6 +89,7 @@ def emit(namespace: str, **kwargs: Any) -> None:
         -Emits a notify event after args have been sent to subscribers.
         Notify emits the used namespace.
     """
+    registry.validate_namespace(namespace)
     if _is_paused():
         return
 
@@ -129,6 +128,7 @@ async def emit_async(namespace: str, **kwargs: Any) -> None:
         -Emits a notify event after args have been sent to subscribers.
         Notify emits the used namespace.
     """
+    registry.validate_namespace(namespace)
     if _is_paused():
         return
 
@@ -157,6 +157,7 @@ def stage(namespace: str, **kwargs: Any) -> None:
         namespace (str): The namespace to pass the event to.
         **kwargs: The arguments to pass through the namespace.
     """
+    registry.validate_namespace(namespace)
     registry.STAGED_REGISTRY[namespace].append(kwargs)
 
 
@@ -225,9 +226,13 @@ def _is_paused() -> bool:
 
 
 def _prepare_emit(namespace: str, kwargs: dict[str, Any]) -> Optional[dict[str, Any]]:
-    """Validate emit arguments and apply matching transformers."""
-    function.validate_emit_args(namespace, kwargs)
-    return _apply_transformers(namespace, kwargs)
+    """Apply matching transformers, then validate the resulting payload."""
+    transformed_kwargs = _apply_transformers(namespace, kwargs)
+    if transformed_kwargs is None:
+        return None
+
+    signature.validate_emit_args(namespace, transformed_kwargs)
+    return transformed_kwargs
 
 
 def _flush_one_shots(one_shots: list[tuple[str, subscriber.SUBSCRIBER_SIG]]) -> None:
@@ -239,6 +244,8 @@ def _flush_one_shots(one_shots: list[tuple[str, subscriber.SUBSCRIBER_SIG]]) -> 
         entry = registry.NAMESPACE_REGISTRY[reg_namespace]
         items = entry.subscribers
         entry.subscribers = [i for i in items if i.callback != callback]
+        if not entry.subscribers:
+            entry.signature = None
 
         if (
             not reg_namespace.startswith(namespaces.NOTIFY_NAMESPACE_ROOT)
@@ -307,7 +314,7 @@ def _deliver_sync_subscriber(
         return True
 
     try:
-        callback(**transformed_kwargs)
+        callback(**signature.get_callback_kwargs(callback, transformed_kwargs))
     except Exception as exc:
         if subscriber.subscriptions_exception_handler is None:
             raise
@@ -334,10 +341,11 @@ async def _deliver_async_subscriber(
         return True
 
     try:
+        callback_kwargs = signature.get_callback_kwargs(callback, transformed_kwargs)
         if sub.is_async:
-            await callback(**transformed_kwargs)
+            await callback(**callback_kwargs)
         else:
-            callback(**transformed_kwargs)
+            callback(**callback_kwargs)
     except Exception as exc:
         if subscriber.subscriptions_exception_handler is None:
             raise

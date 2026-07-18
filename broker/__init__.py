@@ -1,4 +1,4 @@
-from broker.function import *
+from broker.signature import *
 from broker.handlers import *
 from broker.introspection import *
 from broker.namespaces import *

@@ -325,8 +325,8 @@ def test_emit_after_all_subscribers_collected() -> None:
     broker.emit("test.event", data="test")
 
 
-def test_wildcard_subscriber_collection() -> None:
-    """Test that wildcard subscribers are properly collected."""
+def test_parent_subscriber_collection() -> None:
+    """Test that parent subscribers are properly collected."""
     broker.clear()
     collected_namespaces: list[str] = []
 
@@ -337,9 +337,9 @@ def test_wildcard_subscriber_collection() -> None:
     broker.set_flag_states(on_subscriber_collected=True)
 
     wildcard_callback = lambda data: None
-    broker.register_subscriber("test.*", wildcard_callback)
+    broker.register_subscriber("test", wildcard_callback)
 
     del wildcard_callback
     gc.collect()
 
-    assert "test.*" in collected_namespaces
+    assert "test" in collected_namespaces
