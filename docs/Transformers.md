@@ -23,6 +23,11 @@ broker.emit('system.startup')  # timestamp added automatically
 ```
 Transformers do not alter the tracked signature for matching.
 
+Signature validation happens after transformers intercept data, and validation
+simply checks that the expected keywords are present. Transformers can add any
+number of additional keywords, and as long as the expected keywords are present,
+the validation will pass.
+
 ### Blocking Events
 
 Return `None` to prevent event delivery:

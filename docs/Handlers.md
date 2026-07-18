@@ -51,8 +51,7 @@ broker.set_subscriber_exception_handler(custom_handler)
 
 ### Disabling Handlers
 
-The broker handler can be set to None to return to raise all encountered
-exceptions.
+The broker handler can be set to `None` to raise all encountered exceptions.
 ```python
 # Disable (raise all exceptions)
 broker.set_subscriber_exception_handler(None)
