@@ -12,7 +12,7 @@ from broker import handlers
 from broker import namespaces
 from broker import subscriber
 from broker import transformer
-from broker.private import registry
+from broker.private import namespace as _namespace
 
 __all__ = [
     # ---vars---
@@ -89,7 +89,7 @@ def emit(namespace: str, **kwargs: Any) -> None:
         -Emits a notify event after args have been sent to subscribers.
         Notify emits the used namespace.
     """
-    registry.validate_namespace(namespace)
+    _namespace.validate_namespace(namespace)
     if _is_paused():
         return
 
@@ -128,7 +128,7 @@ async def emit_async(namespace: str, **kwargs: Any) -> None:
         -Emits a notify event after args have been sent to subscribers.
         Notify emits the used namespace.
     """
-    registry.validate_namespace(namespace)
+    _namespace.validate_namespace(namespace)
     if _is_paused():
         return
 
@@ -157,8 +157,8 @@ def stage(namespace: str, **kwargs: Any) -> None:
         namespace (str): The namespace to pass the event to.
         **kwargs: The arguments to pass through the namespace.
     """
-    registry.validate_namespace(namespace)
-    registry.STAGED_REGISTRY[namespace].append(kwargs)
+    _namespace.validate_namespace(namespace)
+    _namespace.STAGED_REGISTRY[namespace].append(kwargs)
 
 
 def emit_staged(flush: bool = True) -> None:
@@ -172,11 +172,11 @@ def emit_staged(flush: bool = True) -> None:
     if _is_paused():
         return
 
-    namespaces_ = list(registry.STAGED_REGISTRY.keys())
-    staged = {ns: list(registry.STAGED_REGISTRY[ns]) for ns in namespaces_}
+    namespaces_ = list(_namespace.STAGED_REGISTRY.keys())
+    staged = {ns: list(_namespace.STAGED_REGISTRY[ns]) for ns in namespaces_}
 
     if flush:
-        registry.STAGED_REGISTRY.clear()
+        _namespace.STAGED_REGISTRY.clear()
 
     for namespace, events in staged.items():
         for kwargs in events:
@@ -194,11 +194,11 @@ async def emit_staged_async(flush: bool = True) -> None:
     if _is_paused():
         return
 
-    namespaces_ = list(registry.STAGED_REGISTRY.keys())
-    staged = {ns: list(registry.STAGED_REGISTRY[ns]) for ns in namespaces_}
+    namespaces_ = list(_namespace.STAGED_REGISTRY.keys())
+    staged = {ns: list(_namespace.STAGED_REGISTRY[ns]) for ns in namespaces_}
 
     if flush:
-        registry.STAGED_REGISTRY.clear()
+        _namespace.STAGED_REGISTRY.clear()
 
     for namespace, events in staged.items():
         for kwargs in events:
@@ -206,11 +206,11 @@ async def emit_staged_async(flush: bool = True) -> None:
 
 
 def clear() -> None:
-    registry.NAMESPACE_REGISTRY.clear()
+    _namespace.NAMESPACE_REGISTRY.clear()
 
 
 def clear_staged() -> None:
-    registry.STAGED_REGISTRY.clear()
+    _namespace.STAGED_REGISTRY.clear()
 
 
 def notify_new_namespace_created(namespace: str) -> None:
@@ -238,10 +238,10 @@ def _prepare_emit(namespace: str, kwargs: dict[str, Any]) -> Optional[dict[str, 
 def _flush_one_shots(one_shots: list[tuple[str, subscriber.SUBSCRIBER_SIG]]) -> None:
     # duplicate to subscriber.unregister_subscriber to avoid a circular import.
     for reg_namespace, callback in one_shots:
-        if reg_namespace not in registry.NAMESPACE_REGISTRY:
+        if reg_namespace not in _namespace.NAMESPACE_REGISTRY:
             return
 
-        entry = registry.NAMESPACE_REGISTRY[reg_namespace]
+        entry = _namespace.NAMESPACE_REGISTRY[reg_namespace]
         items = entry.subscribers
         entry.subscribers = [i for i in items if i.callback != callback]
         if not entry.subscribers:
@@ -265,7 +265,7 @@ def _emit_sync_subscribers(namespace: str, transformed_kwargs: dict[str, Any]) -
     """
     one_shots: list[tuple[str, subscriber.SUBSCRIBER_SIG]] = []
 
-    for reg_namespace, sub in registry.get_sorted_subscribers(namespace):
+    for reg_namespace, sub in _namespace.get_sorted_subscribers(namespace):
         if not _deliver_sync_subscriber(
             namespace=namespace,
             transformed_kwargs=transformed_kwargs,
@@ -289,7 +289,7 @@ async def _emit_async_subscribers(
     """
     one_shots: list[tuple[str, subscriber.SUBSCRIBER_SIG]] = []
 
-    for reg_namespace, sub in registry.get_sorted_subscribers(namespace):
+    for reg_namespace, sub in _namespace.get_sorted_subscribers(namespace):
         if not await _deliver_async_subscriber(
             namespace=namespace,
             transformed_kwargs=transformed_kwargs,
@@ -392,8 +392,8 @@ def _apply_transformers(
     """
     matching_transformers = []
 
-    for reg_namespace, entry in registry.NAMESPACE_REGISTRY.items():
-        if registry.matches(namespace, reg_namespace):
+    for reg_namespace, entry in _namespace.NAMESPACE_REGISTRY.items():
+        if _namespace.matches(namespace, reg_namespace):
             matching_transformers.extend(entry.transformers)
 
     matching_transformers.sort(key=lambda t: t.priority, reverse=True)

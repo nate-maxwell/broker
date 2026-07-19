@@ -7,8 +7,10 @@ on:
     branches: [ main, develop ]
 
 jobs:
-  test:
+  discover-environments:
     runs-on: windows-latest
+    outputs:
+      matrix: ${{ steps.tox-environments.outputs.matrix }}
 
     steps:
       - uses: actions/checkout@v4
@@ -16,17 +18,71 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
-          architecture: 'x64'
+          python-version: "3.13"
 
-      - name: Install dependencies
+      - name: Install tox
+        run: python -m pip install tox
+
+      - name: Read tox environments
+        id: tox-environments
+        shell: pwsh
         run: |
-          python -m pip install --upgrade pip
-          pip install pytest
-          pip install pytest-asyncio
+          $matrix = @(
+            python -m tox list --no-desc -d | ForEach-Object {
+              if ($_ -notmatch '^py(?<major>\d)(?<minor>\d+)$') {
+                throw "Cannot determine a Python version from tox environment '$_'."
+              }
 
-      - name: Install package in development mode
-        run: pip install -e .
+              @{
+                tox = $_
+                python = "$($Matches.major).$($Matches.minor)"
+              }
+            }
+          ) | ConvertTo-Json -Compress
 
-      - name: Run tests
-        run: pytest tests/ -v
+          "matrix=$matrix" >> $env:GITHUB_OUTPUT
+
+  tox:
+    needs: discover-environments
+    name: ${{ matrix.tox }} (Python ${{ matrix.python }})
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.discover-environments.outputs.matrix) }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: Install tox
+        run: python -m pip install tox
+
+      - name: Run ${{ matrix.tox }}
+        env:
+          TOX_ENV: ${{ matrix.tox }}
+        run: python -m tox run -e $env:TOX_ENV
+
+  test:
+    name: test
+    if: ${{ always() }}
+    needs: [discover-environments, tox]
+    runs-on: windows-latest
+
+    steps:
+      - name: Verify all tox environments passed
+        shell: pwsh
+        env:
+          DISCOVERY_RESULT: ${{ needs.discover-environments.result }}
+          TOX_RESULT: ${{ needs.tox.result }}
+        run: |
+          if (
+            $env:DISCOVERY_RESULT -ne 'success' -or
+            $env:TOX_RESULT -ne 'success'
+          ) {
+            throw "Tox test matrix did not pass. Discovery: $env:DISCOVERY_RESULT; tox: $env:TOX_RESULT"
+          }

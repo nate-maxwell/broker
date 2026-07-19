@@ -8,7 +8,7 @@ import inspect
 from typing import Any
 
 from broker import subscriber
-from broker.private import registry
+from broker.private import namespace as _namespace
 
 
 class EmitArgumentError(Exception):
@@ -69,8 +69,8 @@ def validate_emit_args(namespace: str, kwargs: dict[str, Any]) -> None:
     provided_args = set(kwargs.keys())
 
     # Check all namespaces that match the emitted namespace
-    for reg_namespace, entry in registry.NAMESPACE_REGISTRY.items():
-        if not registry.matches(namespace, reg_namespace):
+    for reg_namespace, entry in _namespace.NAMESPACE_REGISTRY.items():
+        if not _namespace.matches(namespace, reg_namespace):
             continue
 
         expected_params = entry.signature

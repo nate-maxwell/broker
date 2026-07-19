@@ -6,7 +6,7 @@ to use.
 """
 
 from broker import routing
-from broker.private import registry
+from broker.private import namespace as _namespace
 
 
 NOTIFY_NAMESPACE_ROOT = "broker.notify."
@@ -29,12 +29,12 @@ BROKER_ON_NAMESPACE_DELETED = f"{NOTIFY_NAMESPACE_ROOT}namespace.deleted"
 
 def cleanup_namespace_if_empty(namespace: str) -> None:
     """Remove namespace from registry if it has no subscribers or transformers."""
-    if namespace not in registry.NAMESPACE_REGISTRY:
+    if namespace not in _namespace.NAMESPACE_REGISTRY:
         return
 
-    entry = registry.NAMESPACE_REGISTRY[namespace]
+    entry = _namespace.NAMESPACE_REGISTRY[namespace]
     if not entry.subscribers and not entry.transformers:
-        del registry.NAMESPACE_REGISTRY[namespace]
+        del _namespace.NAMESPACE_REGISTRY[namespace]
         if (
             not namespace.startswith(NOTIFY_NAMESPACE_ROOT)
             and routing.notify_on_del_namespace
