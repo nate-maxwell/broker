@@ -484,10 +484,10 @@ def _make_weak_ref(
     callback: subscriber.SUBSCRIBER_SIG,
     namespace: str,
     on_collected_callback: Callable[[str], None],
-) -> Union[weakref.ref[Any], weakref.WeakMethod]:
+) -> Union[weakref.ref[Any], weakref.WeakMethod[Any]]:
     """Create the appropriate weak reference for any callback type."""
 
-    def cleanup(_: Union[weakref.ref[Any], weakref.WeakMethod]) -> None:
+    def cleanup(_: Union[weakref.ref[Any], weakref.WeakMethod[Any]]) -> None:
         # Arg needed to add for weakref creation.
         on_collected_callback(namespace)
 

@@ -179,5 +179,15 @@ os.environ["BROKER_REIMPORT_GUARD"] = "false"
 
 This protects the global namespace/subscriber table from being accidentally cleared.
 
+## Development
+
+Run the test suite and strict static type checks through tox:
+
+```shell
+python -m pip install tox
+python -m tox
+python -m tox -e mypy
+```
+
 ## API References
 Can be found [here](./docs/APIReferences.md).

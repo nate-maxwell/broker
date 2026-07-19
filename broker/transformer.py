@@ -53,7 +53,7 @@ class Transformer(object):
     or completely change the payload.
     """
 
-    weak_callback: Union[weakref.ref[Any], weakref.WeakMethod]
+    weak_callback: Union[weakref.ref[Any], weakref.WeakMethod[Any]]
     """
     The end point that data is forwarded to. i.e. what gets ran.
     This is a weak reference so the callback isn't kept alive by the broker.

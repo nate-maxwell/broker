@@ -18,6 +18,7 @@ import os
 import sys
 from collections import defaultdict
 from dataclasses import dataclass
+from typing import Any
 from typing import Optional
 from typing import TYPE_CHECKING
 
@@ -73,7 +74,7 @@ A namespace exists if it has at least one subscriber OR transformer.
 """
 
 
-STAGED_REGISTRY: dict[str, list[dict]] = defaultdict(list)
+STAGED_REGISTRY: dict[str, list[dict[str, Any]]] = defaultdict(list)
 """
 A separate namespace table to temporarily hold emitted values until the user
 calls broker.emit_staged(). 
