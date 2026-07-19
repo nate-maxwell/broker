@@ -80,7 +80,7 @@ broker.emit('user.login', username='alice', user_id=42)
 # Output: 42
 ```
 
-Child events bubble to both subscribers of parent namespaces. Each subscriber
+Child events bubble to subscribers of parent namespaces as well. Each subscriber
 receives only it's named arguments unless it explicitly accepts `**kwargs`.
 Transformers run before required arguments are validated.
 
