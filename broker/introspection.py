@@ -525,7 +525,7 @@ def get_statistics() -> dict[str, object]:
     }
 
 
-def _get_callback_info(callback: Optional[Callable]) -> str:
+def _get_callback_info(callback: Optional[Callable[..., object]]) -> str:
     """Returns metadata on a callable as a string."""
     if callback is None:
         info = "<dead reference>"
@@ -549,7 +549,7 @@ def _get_callback_info(callback: Optional[Callable]) -> str:
     return info
 
 
-def to_dict() -> dict:
+def to_dict() -> dict[str, dict[str, list[str]]]:
     """Convert the broker structure to a dictionary."""
     keys = sorted(NAMESPACE_REGISTRY.keys())
     data = {}
@@ -593,7 +593,7 @@ def to_string() -> str:
     return json.dumps(to_dict(), indent=4)
 
 
-def export(filepath: Union[str, os.PathLike]) -> None:
+def export(filepath: Union[str, os.PathLike[str]]) -> None:
     """Export the broker structure to the given filepath."""
     with open(filepath, "w") as outfile:
         json.dump(to_dict(), outfile, indent=4)

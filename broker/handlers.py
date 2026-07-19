@@ -27,7 +27,7 @@ STOP = True
 CONTINUE = False
 
 
-def get_callable_name(callable_: Callable) -> str:
+def get_callable_name(callable_: Callable[..., object]) -> str:
     """
     Returns the name of the callable, using class name for items with __self__,
     __name__ for anything with __name__, or str(callback) if neither are found.
@@ -77,7 +77,7 @@ def silent_subscriber_exception(_: "SUBSCRIBER_SIG", __: str, ___: Exception) ->
     return CONTINUE
 
 
-exceptions_caught = []
+exceptions_caught: list[dict[str, object]] = []
 
 
 def collect_subscriber_exception(
@@ -134,7 +134,7 @@ def silent_transformer_exception(_: "TRANSFORMER_SIG", __: str, ___: Exception) 
     return CONTINUE
 
 
-transformer_exceptions_caught = []
+transformer_exceptions_caught: list[dict[str, object]] = []
 
 
 def collecting_transformer_exception(
