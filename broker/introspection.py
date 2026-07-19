@@ -13,10 +13,10 @@ from typing import TYPE_CHECKING
 from typing import Union
 
 from broker import routing
-from broker.private.registry import NAMESPACE_REGISTRY
-from broker.private.registry import STAGED_REGISTRY
-from broker.private.registry import matches
-from broker.private.registry import validate_namespace
+from broker.private.namespace import NAMESPACE_REGISTRY
+from broker.private.namespace import STAGED_REGISTRY
+from broker.private.namespace import matches
+from broker.private.namespace import validate_namespace
 
 if TYPE_CHECKING:
     from broker.subscriber import Subscriber
@@ -594,7 +594,7 @@ def to_string() -> str:
 
 
 def export(filepath: Union[str, os.PathLike]) -> None:
-    """Export broker structure to filepath."""
+    """Export the broker structure to the given filepath."""
     with open(filepath, "w") as outfile:
         json.dump(to_dict(), outfile, indent=4)
 

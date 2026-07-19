@@ -2,7 +2,7 @@
 # Primary registration logic
 
 The business logic for validating, adding, and removing subscribers and
-transformers with the primary namespace registry.
+transformers with the primary namespace _namespace.
 """
 
 import inspect
@@ -18,7 +18,7 @@ from broker import namespaces
 from broker import routing
 from broker import subscriber
 from broker import transformer
-from broker.private import registry
+from broker.private import namespace as _namespace
 
 __all__ = [
     "register_subscriber",
@@ -31,7 +31,7 @@ __all__ = [
     "unregister_transformer_all",
 ]
 
-_NamespaceContract: TypeAlias = tuple[str, registry.NamespaceEntry, set[str]]
+_NamespaceContract: TypeAlias = tuple[str, _namespace.NamespaceEntry, set[str]]
 
 
 # -----Subscribers-------------------------------------------------------------
@@ -61,10 +61,10 @@ def register_subscriber(
         Emits a notify event when a namespace is created and when a subscriber
         is registered. Notify emits the used namespace.
     """
-    registry.validate_namespace(namespace)
+    _namespace.validate_namespace(namespace)
     callback_params = signature.get_callback_params(callback)
     accepts_kwargs = signature.callback_accepts_kwargs(callback)
-    existing_entry = registry.NAMESPACE_REGISTRY.get(namespace)
+    existing_entry = _namespace.NAMESPACE_REGISTRY.get(namespace)
     subscriber_signature, descendant_signature_updates = (
         _get_validated_subscriber_signature(
             namespace=namespace,
@@ -89,15 +89,15 @@ def register_subscriber(
         is_one_shot=once,
     )
 
-    is_new_namespace = registry.ensure_namespace_exists(namespace)
-    namespace_entry = registry.NAMESPACE_REGISTRY[namespace]
+    is_new_namespace = _namespace.ensure_namespace_exists(namespace)
+    namespace_entry = _namespace.NAMESPACE_REGISTRY[namespace]
     namespace_entry.signature = subscriber_signature
     namespace_entry.subscribers.append(sub)
     for (
         descendant_namespace,
         descendant_signature,
     ) in descendant_signature_updates.items():
-        registry.NAMESPACE_REGISTRY[descendant_namespace].signature = (
+        _namespace.NAMESPACE_REGISTRY[descendant_namespace].signature = (
             descendant_signature
         )
 
@@ -117,7 +117,7 @@ def _get_validated_subscriber_signature(
     callback_params: set[str],
     accepts_kwargs: bool,
 ) -> tuple[set[str] | None, dict[str, set[str]]]:
-    """Validate a subscriber without mutating the namespace registry."""
+    """Validate a subscriber without mutating the namespace _namespace."""
     if existing_signature is not None:
         _validate_existing_signature(
             namespace=namespace,
@@ -173,12 +173,12 @@ def _validate_existing_signature(
 def _get_related_namespace_contracts(namespace: str) -> list[_NamespaceContract]:
     """Collect concrete contracts above or below a namespace candidate."""
     contracts: list[_NamespaceContract] = []
-    for registered_namespace, entry in registry.NAMESPACE_REGISTRY.items():
+    for registered_namespace, entry in _namespace.NAMESPACE_REGISTRY.items():
         registered_signature = entry.signature
         if registered_signature is None or registered_namespace == namespace:
             continue
 
-        if registry.matches(namespace, registered_namespace) or registry.matches(
+        if _namespace.matches(namespace, registered_namespace) or _namespace.matches(
             registered_namespace, namespace
         ):
             contracts.append((registered_namespace, entry, registered_signature))
@@ -193,7 +193,7 @@ def _get_ancestor_contracts(
     return [
         contract
         for contract in related_contracts
-        if registry.matches(namespace, contract[0])
+        if _namespace.matches(namespace, contract[0])
     ]
 
 
@@ -240,7 +240,7 @@ def _get_descendant_signature_updates(
     """
     updates: dict[str, set[str]] = {}
     for registered_namespace, entry, descendant_signature in related_contracts:
-        if not registry.matches(registered_namespace, namespace):
+        if not _namespace.matches(registered_namespace, namespace):
             continue
 
         if subscriber_signature <= descendant_signature:
@@ -259,7 +259,7 @@ def _get_descendant_signature_updates(
     return updates
 
 
-def _all_subscribers_accept_kwargs(entry: registry.NamespaceEntry) -> bool:
+def _all_subscribers_accept_kwargs(entry: _namespace.NamespaceEntry) -> bool:
     """Return whether every live subscriber can accept an expanded contract."""
     callbacks = [sub.callback for sub in entry.subscribers]
     live_callbacks = [callback for callback in callbacks if callback is not None]
@@ -303,11 +303,11 @@ def unregister_subscriber(namespace: str, callback: subscriber.SUBSCRIBER_SIG) -
         namespace is removed from consolidation. Notify emits the used
         namespace.
     """
-    registry.validate_namespace(namespace)
-    if namespace not in registry.NAMESPACE_REGISTRY:
+    _namespace.validate_namespace(namespace)
+    if namespace not in _namespace.NAMESPACE_REGISTRY:
         return
 
-    entry = registry.NAMESPACE_REGISTRY[namespace]
+    entry = _namespace.NAMESPACE_REGISTRY[namespace]
     items = entry.subscribers
     entry.subscribers = [i for i in items if i.callback != callback]
     if not entry.subscribers:
@@ -336,8 +336,8 @@ def unregister_subscriber_all(callback: subscriber.SUBSCRIBER_SIG) -> None:
 
 def _on_subscriber_collected(namespace: str) -> None:
     """Called when a subscriber is garbage collected."""
-    if namespace in registry.NAMESPACE_REGISTRY:
-        entry = registry.NAMESPACE_REGISTRY[namespace]
+    if namespace in _namespace.NAMESPACE_REGISTRY:
+        entry = _namespace.NAMESPACE_REGISTRY[namespace]
         items = entry.subscribers
         entry.subscribers = [i for i in items if i.callback is not None]
         if not entry.subscribers:
@@ -375,7 +375,7 @@ def register_transformer(
             and returns modified kwargs or None to block.
         priority (int): Execution order (higher = earlier, default 0).
     """
-    registry.validate_namespace(namespace)
+    _namespace.validate_namespace(namespace)
     weak_transformer = _make_weak_ref(
         callback=callback,
         namespace=namespace,
@@ -386,8 +386,8 @@ def register_transformer(
         weak_callback=weak_transformer, namespace=namespace, priority=priority
     )
 
-    is_new_namespace = registry.ensure_namespace_exists(namespace)
-    entry = registry.NAMESPACE_REGISTRY[namespace]
+    is_new_namespace = _namespace.ensure_namespace_exists(namespace)
+    entry = _namespace.NAMESPACE_REGISTRY[namespace]
     entry.transformers.append(transformer_obj)
     entry.transformers.sort(key=lambda t: t.priority, reverse=True)
 
@@ -432,11 +432,11 @@ def unregister_transformer(
         namespace (str): The namespace the transformer is registered to.
         callback (TRANSFORMER): The transformer function to remove.
     """
-    registry.validate_namespace(namespace)
-    if namespace not in registry.NAMESPACE_REGISTRY:
+    _namespace.validate_namespace(namespace)
+    if namespace not in _namespace.NAMESPACE_REGISTRY:
         return
 
-    entry = registry.NAMESPACE_REGISTRY[namespace]
+    entry = _namespace.NAMESPACE_REGISTRY[namespace]
     items = getattr(entry, "transformers")
     setattr(entry, "transformers", [i for i in items if i.callback != callback])
 
@@ -465,8 +465,8 @@ def unregister_transformer_all(callback: transformer.TRANSFORMER_SIG) -> None:
 
 def _on_transformer_collected(namespace: str) -> None:
     """Called when a transformer is garbage collected."""
-    if namespace in registry.NAMESPACE_REGISTRY:
-        entry = registry.NAMESPACE_REGISTRY[namespace]
+    if namespace in _namespace.NAMESPACE_REGISTRY:
+        entry = _namespace.NAMESPACE_REGISTRY[namespace]
         items = getattr(entry, "transformers")
         setattr(entry, "transformers", [i for i in items if i.callback is not None])
 

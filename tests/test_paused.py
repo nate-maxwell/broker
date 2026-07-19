@@ -144,6 +144,27 @@ def test_paused_does_not_affect_staging():
     assert called == ["hello"]
 
 
+def test_emit_staged_while_paused_preserves_staged_events():
+    called = []
+
+    def handler(data: str) -> None:
+        called.append(data)
+
+    broker.register_subscriber("test.event", handler)
+    broker.stage("test.event", data="hello")
+
+    with broker.PausedContext():
+        broker.emit_staged()
+
+    assert called == []
+    assert broker.get_staged_count("test.event") == 1
+
+    broker.emit_staged()
+
+    assert called == ["hello"]
+    assert broker.get_staged_count("test.event") == 0
+
+
 def test_emit_resumes_across_all_namespaces_after_exit():
     called = []
 

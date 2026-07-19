@@ -16,7 +16,7 @@ from typing import Union
 
 from broker import handlers
 from broker import namespaces
-from broker.private import registry
+from broker.private import namespace as _namespace
 
 
 TRANSFORMER_SIG = Callable[[str, dict[str, Any]], Optional[dict[str, Any]]]
@@ -91,6 +91,6 @@ def set_transformer_exception_handler(
 
 def clear_transformers() -> None:
     """Clear all registered transformers."""
-    for namespace, entry in registry.NAMESPACE_REGISTRY.items():
+    for namespace, entry in _namespace.NAMESPACE_REGISTRY.items():
         entry.transformers.clear()
         namespaces.cleanup_namespace_if_empty(namespace)

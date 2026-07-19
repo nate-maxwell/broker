@@ -36,10 +36,10 @@ def check_reimport_guard() -> None:
     if os.environ[_ENV_REIMPORT_GUARD] == _ENV_GUARD_F:
         return
 
-    _existing = sys.modules.get("broker.private.registry")
-    if _existing is not None and hasattr(_existing, "_REGISTRY_IMPORT_GUARD"):
+    _existing = sys.modules.get("broker.private.namespace")
+    if _existing is not None and hasattr(_existing, "_NAMESPACE_IMPORT_GUARD"):
         raise ImportError(
-            "Module 'broker.private.registry' has already been imported and cannot be reloaded. "
+            "Module 'broker.private.namespace' has already been imported and cannot be reloaded. "
             "Subscriber data would be lost. "
             "Restart your Python session, or set 'BROKER_REIMPORT_GUARD' environ var to 'false', to reimport."
         )
@@ -47,7 +47,7 @@ def check_reimport_guard() -> None:
 
 check_reimport_guard()
 
-_REGISTRY_IMPORT_GUARD = True
+_NAMESPACE_IMPORT_GUARD = True
 # -----------------------------------------------------------------------------
 
 

@@ -1,6 +1,7 @@
 # Broker
 
-A lightweight message broker system for Python with support for sync/async events, transformers, and flexible event routing.
+A lightweight pure-python message broker system for Python runtimes with support
+for sync/async events, transformers, and flexible event routing.
 
 ## Quick Start
 
@@ -163,7 +164,7 @@ raises `ImportError` to prevent the subscriber table from being cleared:
 
 ```python
 import importlib
-import broker.private.registry as registry
+import broker.private.namespace as registry
 
 importlib.reload(registry)  # Raises ImportError
 ```
