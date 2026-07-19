@@ -42,7 +42,7 @@ jobs:
 
           "matrix=$matrix" >> $env:GITHUB_OUTPUT
 
-  test:
+  tox:
     needs: discover-environments
     name: ${{ matrix.tox }} (Python ${{ matrix.python }})
     runs-on: windows-latest
@@ -66,3 +66,23 @@ jobs:
         env:
           TOX_ENV: ${{ matrix.tox }}
         run: python -m tox run -e $env:TOX_ENV
+
+  test:
+    name: test
+    if: ${{ always() }}
+    needs: [discover-environments, tox]
+    runs-on: windows-latest
+
+    steps:
+      - name: Verify all tox environments passed
+        shell: pwsh
+        env:
+          DISCOVERY_RESULT: ${{ needs.discover-environments.result }}
+          TOX_RESULT: ${{ needs.tox.result }}
+        run: |
+          if (
+            $env:DISCOVERY_RESULT -ne 'success' -or
+            $env:TOX_RESULT -ne 'success'
+          ) {
+            throw "Tox test matrix did not pass. Discovery: $env:DISCOVERY_RESULT; tox: $env:TOX_RESULT"
+          }
