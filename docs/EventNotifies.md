@@ -30,7 +30,6 @@ def on_emit(namespace: str, kwargs: dict) -> None:
 **Emission Events**
 - `BROKER_ON_EMIT` - Event emitted via `emit()`
 - `BROKER_ON_EMIT_ASYNC` - Event emitted via `emit_async()`
-- `BROKER_ON_EMIT_ALL` - Any emission (sync or async)
 
 **Namespace Events**
 - `BROKER_ON_NAMESPACE_CREATED` - New namespace created

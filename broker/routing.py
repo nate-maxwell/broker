@@ -9,6 +9,7 @@ from typing import Optional
 
 from broker import signature
 from broker import handlers
+from broker import metrics
 from broker import namespaces
 from broker import subscriber
 from broker import transformer
@@ -16,7 +17,6 @@ from broker.private import namespace as _namespace
 
 __all__ = [
     # ---vars---
-    "notify_on_all",
     "notify_on_subscribe",
     "notify_on_unsubscribe",
     "notify_on_collected",
@@ -38,8 +38,6 @@ __all__ = [
     "clear_staged",
     "notify_new_namespace_created",
 ]
-
-notify_on_all: bool = False
 
 notify_on_subscribe: bool = False
 notify_on_unsubscribe: bool = False
@@ -90,19 +88,34 @@ def emit(namespace: str, **kwargs: Any) -> None:
         Notify emits the used namespace.
     """
     _namespace.validate_namespace(namespace)
-    if _is_paused():
-        return
+    metric_context = metrics._start_emit(namespace, "sync")
+    try:
+        if _is_paused():
+            if metric_context is not None:
+                metric_context.paused()
+            return
 
-    transformed_kwargs = _prepare_emit(namespace, kwargs)
-    if transformed_kwargs is None:
-        return
+        transformed_kwargs = _prepare_emit(namespace, kwargs, metric_context)
+        if transformed_kwargs is None:
+            if metric_context is not None:
+                metric_context.blocked()
+            return
 
-    _emit_sync_subscribers(namespace, transformed_kwargs)
-    _emit_notify_event(
-        source_namespace=namespace,
-        notify_namespace=namespaces.BROKER_ON_EMIT,
-        should_notify=notify_on_emit or notify_on_emit_all,
-    )
+        _emit_sync_subscribers(namespace, transformed_kwargs, metric_context)
+        _emit_notify_event(
+            source_namespace=namespace,
+            notify_namespace=namespaces.BROKER_ON_EMIT,
+            should_notify=notify_on_emit or notify_on_emit_all,
+        )
+        if metric_context is not None:
+            metric_context.complete()
+    except Exception:
+        if metric_context is not None:
+            metric_context.failed()
+        raise
+    finally:
+        if metric_context is not None:
+            metric_context.finish()
 
 
 async def emit_async(namespace: str, **kwargs: Any) -> None:
@@ -129,19 +142,34 @@ async def emit_async(namespace: str, **kwargs: Any) -> None:
         Notify emits the used namespace.
     """
     _namespace.validate_namespace(namespace)
-    if _is_paused():
-        return
+    metric_context = metrics._start_emit(namespace, "async")
+    try:
+        if _is_paused():
+            if metric_context is not None:
+                metric_context.paused()
+            return
 
-    transformed_kwargs = _prepare_emit(namespace, kwargs)
-    if transformed_kwargs is None:
-        return
+        transformed_kwargs = _prepare_emit(namespace, kwargs, metric_context)
+        if transformed_kwargs is None:
+            if metric_context is not None:
+                metric_context.blocked()
+            return
 
-    await _emit_async_subscribers(namespace, transformed_kwargs)
-    _emit_notify_event(
-        source_namespace=namespace,
-        notify_namespace=namespaces.BROKER_ON_EMIT_ASYNC,
-        should_notify=notify_on_emit_async or notify_on_emit_all,
-    )
+        await _emit_async_subscribers(namespace, transformed_kwargs, metric_context)
+        _emit_notify_event(
+            source_namespace=namespace,
+            notify_namespace=namespaces.BROKER_ON_EMIT_ASYNC,
+            should_notify=notify_on_emit_async or notify_on_emit_all,
+        )
+        if metric_context is not None:
+            metric_context.complete()
+    except Exception:
+        if metric_context is not None:
+            metric_context.failed()
+        raise
+    finally:
+        if metric_context is not None:
+            metric_context.finish()
 
 
 def stage(namespace: str, **kwargs: Any) -> None:
@@ -225,9 +253,13 @@ def _is_paused() -> bool:
     return _paused > 0
 
 
-def _prepare_emit(namespace: str, kwargs: dict[str, Any]) -> Optional[dict[str, Any]]:
+def _prepare_emit(
+    namespace: str,
+    kwargs: dict[str, Any],
+    metric_context: Optional[metrics._EmitMetricsContext],
+) -> Optional[dict[str, Any]]:
     """Apply matching transformers, then validate the resulting payload."""
-    transformed_kwargs = _apply_transformers(namespace, kwargs)
+    transformed_kwargs = _apply_transformers(namespace, kwargs, metric_context)
     if transformed_kwargs is None:
         return None
 
@@ -256,7 +288,11 @@ def _flush_one_shots(one_shots: list[tuple[str, subscriber.SUBSCRIBER_SIG]]) -> 
         namespaces.cleanup_namespace_if_empty(reg_namespace)
 
 
-def _emit_sync_subscribers(namespace: str, transformed_kwargs: dict[str, Any]) -> None:
+def _emit_sync_subscribers(
+    namespace: str,
+    transformed_kwargs: dict[str, Any],
+    metric_context: Optional[metrics._EmitMetricsContext],
+) -> None:
     """
     Orchestrates delivering events to synchronous subscribers in priority order.
 
@@ -272,6 +308,7 @@ def _emit_sync_subscribers(namespace: str, transformed_kwargs: dict[str, Any]) -
             reg_namespace=reg_namespace,
             sub=sub,
             one_shots=one_shots,
+            metric_context=metric_context,
         ):
             break
 
@@ -279,7 +316,9 @@ def _emit_sync_subscribers(namespace: str, transformed_kwargs: dict[str, Any]) -
 
 
 async def _emit_async_subscribers(
-    namespace: str, transformed_kwargs: dict[str, Any]
+    namespace: str,
+    transformed_kwargs: dict[str, Any],
+    metric_context: Optional[metrics._EmitMetricsContext],
 ) -> None:
     """
     Orchestrates delivering events to all matching subscribers in priority order.
@@ -296,6 +335,7 @@ async def _emit_async_subscribers(
             reg_namespace=reg_namespace,
             sub=sub,
             one_shots=one_shots,
+            metric_context=metric_context,
         ):
             break
 
@@ -308,14 +348,24 @@ def _deliver_sync_subscriber(
     reg_namespace: str,
     sub: subscriber.Subscriber,
     one_shots: list[tuple[str, subscriber.SUBSCRIBER_SIG]],
+    metric_context: Optional[metrics._EmitMetricsContext],
 ) -> bool:
     callback = sub.callback
-    if callback is None or sub.is_async:
+    if callback is None:
+        return True
+    if sub.is_async:
+        if metric_context is not None:
+            metric_context.async_subscriber_skipped()
         return True
 
     try:
-        callback(**signature.get_callback_kwargs(callback, transformed_kwargs))
+        callback_kwargs = signature.get_callback_kwargs(callback, transformed_kwargs)
+        if metric_context is not None:
+            metric_context.subscriber_call()
+        callback(**callback_kwargs)
     except Exception as exc:
+        if metric_context is not None:
+            metric_context.subscriber_error()
         if subscriber.subscriptions_exception_handler is None:
             raise
 
@@ -334,6 +384,7 @@ async def _deliver_async_subscriber(
     reg_namespace: str,
     sub: subscriber.Subscriber,
     one_shots: list[tuple[str, subscriber.SUBSCRIBER_SIG]],
+    metric_context: Optional[metrics._EmitMetricsContext],
 ) -> bool:
     callback = sub.callback
 
@@ -342,11 +393,15 @@ async def _deliver_async_subscriber(
 
     try:
         callback_kwargs = signature.get_callback_kwargs(callback, transformed_kwargs)
+        if metric_context is not None:
+            metric_context.subscriber_call()
         if sub.is_async:
             await callback(**callback_kwargs)
         else:
             callback(**callback_kwargs)
     except Exception as exc:
+        if metric_context is not None:
+            metric_context.subscriber_error()
         if subscriber.subscriptions_exception_handler is None:
             raise
 
@@ -376,7 +431,9 @@ def _emit_notify_event(
 
 
 def _apply_transformers(
-    namespace: str, kwargs: dict[str, Any]
+    namespace: str,
+    kwargs: dict[str, Any],
+    metric_context: Optional[metrics._EmitMetricsContext],
 ) -> Optional[dict[str, Any]]:
     """
     Apply all matching transformers to event kwargs.
@@ -390,21 +447,16 @@ def _apply_transformers(
     Returns:
         Modified kwargs dict, or None if event was blocked
     """
-    matching_transformers = []
-
-    for reg_namespace, entry in _namespace.NAMESPACE_REGISTRY.items():
-        if _namespace.matches(namespace, reg_namespace):
-            matching_transformers.extend(entry.transformers)
-
-    matching_transformers.sort(key=lambda t: t.priority, reverse=True)
     current_kwargs = kwargs.copy()
 
-    for transformer_obj in matching_transformers:
+    for _, transformer_obj in _namespace.get_sorted_transformers(namespace):
         callback = transformer_obj.callback
         if callback is None:
             continue
 
         try:
+            if metric_context is not None:
+                metric_context.transformer_call()
             result = callback(namespace, current_kwargs)
             if result is None:
                 return None
@@ -412,6 +464,8 @@ def _apply_transformers(
             current_kwargs = result
 
         except Exception as e:
+            if metric_context is not None:
+                metric_context.transformer_error()
             if transformer.transformer_exception_handler is not None:
                 stop = transformer.transformer_exception_handler(callback, namespace, e)
                 if stop:
