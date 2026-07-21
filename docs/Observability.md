@@ -131,9 +131,6 @@ weakly referenced callbacks alive.
 | `namespace` | `str` | The namespace associated with the staged events. |
 | `event_count` | `int` | The number of staged events for that namespace. Payload values are not captured. |
 
-The older `to_dict()` and `to_string()` functions retain their existing compact
-format for compatibility.
-
 ## Runtime metrics
 
 Collection is disabled by default. Enabling metrics does not reset counters,
