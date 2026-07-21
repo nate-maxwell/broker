@@ -128,3 +128,15 @@ def get_sorted_subscribers(namespace: str) -> list[tuple[str, "Subscriber"]]:
 
     result.sort(key=lambda x: x[1].priority, reverse=True)
     return result
+
+
+def get_sorted_transformers(namespace: str) -> list[tuple[str, "Transformer"]]:
+    """Get all transformers matching namespace, sorted by priority."""
+    result: list[tuple[str, "Transformer"]] = []
+
+    for reg_namespace, entry in NAMESPACE_REGISTRY.items():
+        if matches(namespace, reg_namespace):
+            result.extend((reg_namespace, trans) for trans in entry.transformers)
+
+    result.sort(key=lambda x: x[1].priority, reverse=True)
+    return result

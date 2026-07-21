@@ -55,6 +55,19 @@
 - `get_staged_namespaces()` - Get all namespaces with staged events
 - `get_staged_count(namespace: Optional[str] = None)` - Get the number of staged events
 
+- `explain_emit(namespace: str, mode: str = "sync")` - Describe the ordered route an emission would take without invoking callbacks
+- `get_snapshot()` - Capture immutable structured registration and staged-count state
+
+### Runtime Metrics
+
+- `enable_runtime_metrics()` - Enable runtime metric collection without clearing existing counters
+- `disable_runtime_metrics()` - Disable collection without clearing existing counters
+- `runtime_metrics_enabled()` - Check whether collection is enabled
+- `get_runtime_metrics()` - Capture immutable global and per-namespace metric state
+- `reset_runtime_metrics()` - Clear metric counters while preserving enabled state
+
+See [Observability](./Observability.md) for examples and counter semantics.
+
 ### Notify Namespaces
 
 **Subscriber Events**
@@ -70,7 +83,6 @@
 **Emission Events**
 - `BROKER_ON_EMIT` - Event emitted via `emit()`
 - `BROKER_ON_EMIT_ASYNC` - Event emitted via `emit_async()`
-- `BROKER_ON_EMIT_ALL` - Any emission (sync or async)
 
 **Namespace Events**
 - `BROKER_ON_NAMESPACE_CREATED` - New namespace created

@@ -156,6 +156,22 @@ def on_emit(namespace: str, kwargs: dict) -> None:
 
 More info can be found [here](./docs/EventNotifies.md).
 
+### Observability
+
+Inspect an event's ordered route without running it, capture immutable broker
+snapshots, or opt in to runtime delivery metrics:
+
+```python
+plan = broker.explain_emit("file.saved", mode="sync")
+snapshot = broker.get_snapshot()
+
+broker.enable_runtime_metrics()
+broker.emit("file.saved", filename="document.txt", size=1024)
+metrics = broker.get_runtime_metrics()
+```
+
+More info can be found [here](./docs/Observability.md).
+
 ## Reimport Protection
 
 The broker's internal registry is protected against reimporting. If
