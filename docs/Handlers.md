@@ -5,32 +5,32 @@
 Configure how the broker handles errors in subscriber callbacks:
 
 ```python
-from broker import handlers
+import broker
 
 # Stop and Log (default) - logs error and stops delivery
 broker.set_subscriber_exception_handler(
-    handlers.stop_and_log_subscriber_exception
+    broker.stop_and_log_subscriber_exception
 )
 
 # Log and Continue - logs but continues to next subscriber
 broker.set_subscriber_exception_handler(
-    handlers.log_and_continue_subscriber_exception
+    broker.log_and_continue_subscriber_exception
 )
 
 # Silent - ignores all exceptions and continues
 broker.set_subscriber_exception_handler(
-    handlers.silent_subscriber_exception
+    broker.silent_subscriber_exception
 )
 
 # Collecting - captures exceptions for batch review
-handlers.exceptions_caught.clear()
+broker.exceptions_caught.clear()
 broker.set_subscriber_exception_handler(
-    handlers.collect_subscriber_exception
+    broker.collect_subscriber_exception
 )
 
 broker.emit('event', data='test')
 
-for error in handlers.exceptions_caught:
+for error in broker.exceptions_caught:
     print(f"Error in {error['namespace']}: {error['exception']}")
 ```
 
@@ -62,27 +62,27 @@ broker.set_subscriber_exception_handler(None)
 Similar handlers for transformer errors:
 
 ```python
-from broker import handlers
+import broker
 
-# Stop and log transformer errors (blocks event)
+# Stop and log transformer errors (blocks that namespace's delivery phase)
 broker.set_transformer_exception_handler(
-    handlers.stop_and_log_transformer_exception
+    broker.stop_and_log_transformer_exception
 )
 
 # Log and continue with next transformer
 broker.set_transformer_exception_handler(
-    handlers.log_and_continue_transformer_exception
+    broker.log_and_continue_transformer_exception
 )
 
 # Silent mode
 broker.set_transformer_exception_handler(
-    handlers.silent_transformer_exception
+    broker.silent_transformer_exception
 )
 
 # Collecting mode
-handlers.transformer_exceptions_caught.clear()
+broker.transformer_exceptions_caught.clear()
 broker.set_transformer_exception_handler(
-    handlers.collecting_transformer_exception
+    broker.collecting_transformer_exception
 )
 
 # Custom handler

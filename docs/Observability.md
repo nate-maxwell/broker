@@ -5,8 +5,11 @@ and disabled-by-default runtime metrics.
 
 ## Explain an emission
 
-`explain_emit()` uses the same namespace matching and priority ordering as
-actual routing, but does not execute transformers or subscribers.
+`explain_emit()` uses the same namespace and priority ordering as actual
+routing: parent namespaces precede children, and callbacks within each
+namespace run in descending priority order. At runtime each namespace is a
+phase—its transformers run before its subscribers—and receives an isolated
+payload copy. The explanation does not execute either kind of callback.
 
 ```python
 plan = broker.explain_emit("user.login", mode="sync")
@@ -34,9 +37,9 @@ The top-level plan describes the emission and contains its ordered route.
 | `namespace` | `str` | The exact namespace passed to `explain_emit()`. It does not need to be registered itself when a registered parent namespace matches it. |
 | `mode` | `Literal["sync", "async"]` | The delivery API being modeled: `"sync"` represents `emit()` and `"async"` represents `emit_async()`. |
 | `is_paused` | `bool` | Whether the broker was paused when the plan was captured. Eligible callbacks are marked as skipped while this is `True`. |
-| `required_parameters` | `tuple[str, ...]` | The sorted parameter names required by all matching subscriber contracts. These describe the payload after transformation because transformers run before validation. |
-| `transformers` | `tuple[TransformerDeliveryPlan, ...]` | Matching transformer steps in descending execution-priority order. |
-| `subscribers` | `tuple[SubscriberDeliveryPlan, ...]` | Matching subscriber steps in descending execution-priority order, including callbacks that would be skipped. |
+| `required_parameters` | `tuple[str, ...]` | The sorted parameter names required across all matching subscriber contracts. Each namespace validates its own independently transformed payload. |
+| `transformers` | `tuple[TransformerDeliveryPlan, ...]` | Matching transformer steps in parent-to-child namespace order, then descending priority within each namespace. |
+| `subscribers` | `tuple[SubscriberDeliveryPlan, ...]` | Matching subscriber steps in parent-to-child namespace order, then descending priority within each namespace, including callbacks that would be skipped. |
 
 ### `SubscriberDeliveryPlan`
 
@@ -47,7 +50,7 @@ namespace.
 | --- | --- | --- |
 | `callback` | `str` | A display name for the callback, or `"<dead reference>"` when its weak reference is no longer live. The callback object itself is not retained. |
 | `registered_namespace` | `str` | The namespace where the subscriber was registered. This may be a parent of the emitted namespace. |
-| `priority` | `int` | Delivery priority; higher values execute before lower values. |
+| `priority` | `int` | Delivery priority within the registered namespace; higher values execute before lower values. Namespace depth takes precedence. |
 | `is_async` | `bool` | Whether the callback is asynchronous. Async subscribers are skipped in sync mode. |
 | `is_one_shot` | `bool` | Whether the registration is configured to unregister itself after it fires. |
 | `is_alive` | `bool` | Whether the weakly referenced callback was live when the plan was captured. |
@@ -63,9 +66,9 @@ namespace.
 | --- | --- | --- |
 | `callback` | `str` | A display name for the callback, or `"<dead reference>"` when its weak reference is no longer live. The callback object itself is not retained. |
 | `registered_namespace` | `str` | The namespace where the transformer was registered. This may be a parent of the emitted namespace. |
-| `priority` | `int` | Transformation priority; higher values execute before lower values. |
+| `priority` | `int` | Transformation priority within the registered namespace; higher values execute before lower values. Namespace depth takes precedence. |
 | `is_alive` | `bool` | Whether the weakly referenced callback was live when the plan was captured. |
-| `will_run` | `bool` | Whether the transformer is statically eligible to run. An earlier transformer can still block the event before this step is reached. |
+| `will_run` | `bool` | Whether the transformer is statically eligible to run. An earlier transformer in the same namespace can still block that namespace phase before this step is reached. |
 | `skip_reason` | `Optional[str]` | Why the transformer is not eligible, or `None` when `will_run` is `True`. Current reasons cover a dead callback and a paused broker. |
 
 ## Structured snapshots
@@ -154,11 +157,14 @@ broker.reset_runtime_metrics()
 ```
 
 An emission is counted as attempted after its namespace is validated. Paused,
-transformer-blocked, and failed emissions have separate counters. An emission
-is completed only when delivery and any configured emit notification finish
-without an unhandled exception. Exceptions consumed by subscriber or
-transformer exception handlers increment their error counter while preserving
-the handler's existing continue-or-stop behavior.
+fully transformer-blocked, and failed emissions have separate counters. A
+transformer block is local to one namespace phase; the whole emission is
+counted as blocked only when every matching phase is blocked. An emission is
+completed when it is neither paused, failed, nor fully blocked and delivery
+plus any configured emit notification finish without an unhandled exception.
+Exceptions consumed by subscriber or transformer exception handlers increment
+their error counter while preserving the handler's existing continue-or-stop
+behavior.
 
 `subscriber_calls` and `transformer_calls` count callback invocations.
 `async_subscribers_skipped` counts live async subscribers skipped by `emit()`.

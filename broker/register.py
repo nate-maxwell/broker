@@ -366,11 +366,11 @@ def register_transformer(
 
     Transformers intercept events before they reach subscribers and can:
     - Modify event arguments
-    - Block event propagation
+    - Block delivery to this namespace
     - Log/validate events
 
     Args:
-        namespace (str): Namespace whose events and descendants are transformed.
+        namespace (str): Namespace whose delivery payload is transformed.
         callback (TRANSFORMER): Function that receives (namespace, kwargs)
             and returns modified kwargs or None to block.
         priority (int): Execution order (higher = earlier, default 0).

@@ -23,7 +23,7 @@ TRANSFORMER_SIG = Callable[[str, dict[str, Any]], Optional[dict[str, Any]]]
 """
 A transformer function that receives (namespace, kwargs) and returns:
   - Modified kwargs dict to continue the chain
-  - None to stop propagation (event is blocked)
+  - None to block delivery to the transformer's registered namespace
 """
 
 TRANSFORMER_EXCEPTION_HANDLER = Callable[[TRANSFORMER_SIG, str, Exception], bool]
@@ -48,9 +48,9 @@ transformer.
 class Transformer(object):
     """
     A transformer with callback and priority.
-    Transformers alter the data emitted before it reaches the subscribers, like
-    middleware. They can append metadata, validate and filter out bad messages,
-    or completely change the payload.
+    Transformers alter an isolated payload copy before it reaches subscribers
+    registered to the same namespace. They can append metadata, validate and
+    filter out bad messages, or completely change the local payload.
     """
 
     weak_callback: Union[weakref.ref[Any], weakref.WeakMethod[Any]]
@@ -64,7 +64,7 @@ class Transformer(object):
     """Execution order - higher priorities run first."""
 
     namespace: str
-    """The namespace and descendants this transformer applies to."""
+    """The exact namespace delivery phase this transformer applies to."""
 
     @property
     def callback(self) -> Optional[TRANSFORMER_SIG]:
