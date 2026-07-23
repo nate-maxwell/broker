@@ -89,3 +89,30 @@ def test_callbacks_execute_in_priority_order() -> None:
 
     # Assert - should execute in priority order (high to low)
     assert execution_order == ["high", "medium", "low"]
+
+
+def test_parent_namespaces_execute_before_children_regardless_of_priority() -> None:
+    """Namespace depth takes precedence over priority and registration order."""
+    broker.clear()
+    execution_order: list[str] = []
+
+    def record(name: str):
+        def callback(**kwargs: Any) -> None:
+            execution_order.append(name)
+
+        return callback
+
+    child = record("child")
+    parent = record("parent")
+    middle_low = record("middle_low")
+    middle_high = record("middle_high")
+
+    # Deliberately register children first and give them higher priorities.
+    broker.register_subscriber("system.file.open", child, priority=100)
+    broker.register_subscriber("system", parent, priority=-100)
+    broker.register_subscriber("system.file", middle_low, priority=1)
+    broker.register_subscriber("system.file", middle_high, priority=10)
+
+    broker.emit("system.file.open")
+
+    assert execution_order == ["parent", "middle_high", "middle_low", "child"]

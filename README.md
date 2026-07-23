@@ -83,21 +83,25 @@ broker.emit('user.login', username='alice', user_id=42)
 
 Child events bubble to subscribers of parent namespaces as well. Each subscriber
 receives only it's named arguments unless it explicitly accepts `**kwargs`.
-Transformers run before required arguments are validated.
+Each matching namespace is delivered as an isolated phase: its transformers
+run on a fresh shallow copy of the keyword mapping, its required arguments are
+validated, and then its subscribers run. Parent namespace phases run before
+child phases.
 
 ## Transformers
 
-Transformers intercept and modify event data before it reaches subscribers.
-They execute in priority order and obey namespaces just like subscribers.
+Transformers intercept and modify event data before it reaches subscribers in
+the same registered namespace. They execute in priority order and their payload
+changes do not leak into parent or child namespace delivery.
 
 ### Basic Transformer
 
 ```python
 import datetime
 
-@broker.transform("system", priority=10)
+@broker.transform("system.startup", priority=10)
 def add_timestamp(namespace: str, kwargs: dict) -> dict:
-    """Add timestamp to all events."""
+    """Add a timestamp to system.startup delivery."""
     now = datetime.datetime.now().time().isoformat()[:-4]
     kwargs['timestamp'] = now
     return kwargs

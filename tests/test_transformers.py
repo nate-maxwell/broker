@@ -110,26 +110,110 @@ def test_transformer_priority_order() -> None:
     assert execution_order == ["high", "medium", "low"]
 
 
-def test_transformer_on_parent_namespace() -> None:
-    """Test that transformers apply to descendant namespaces."""
+def test_namespace_transformer_and_subscriber_phases_are_isolated() -> None:
+    """Each namespace transforms its own payload before local delivery."""
+    broker.clear()
+    execution_order: list[str] = []
+    received: dict[str, dict] = {}
+
+    def parent(namespace: str, kwargs: dict) -> dict:
+        execution_order.append("parent_transformer")
+        kwargs["transformed_by"] = "parent"
+        return kwargs
+
+    def child(namespace: str, kwargs: dict) -> dict:
+        execution_order.append("child_transformer")
+        assert "transformed_by" not in kwargs
+        kwargs["transformed_by"] = "child"
+        return kwargs
+
+    def middle(namespace: str, kwargs: dict) -> dict:
+        execution_order.append("middle_transformer")
+        assert "transformed_by" not in kwargs
+        kwargs["transformed_by"] = "middle"
+        return kwargs
+
+    def parent_handler(**kwargs) -> None:
+        execution_order.append("parent_subscriber")
+        received["parent"] = kwargs
+
+    def child_handler(**kwargs) -> None:
+        execution_order.append("child_subscriber")
+        received["child"] = kwargs
+
+    def middle_handler(**kwargs) -> None:
+        execution_order.append("middle_subscriber")
+        received["middle"] = kwargs
+
+    broker.register_transformer("system.file.open", child, priority=100)
+    broker.register_transformer("system", parent, priority=-100)
+    broker.register_transformer("system.file", middle)
+    broker.register_subscriber("system.file.open", child_handler)
+    broker.register_subscriber("system", parent_handler)
+    broker.register_subscriber("system.file", middle_handler)
+
+    broker.emit("system.file.open")
+
+    assert execution_order == [
+        "parent_transformer",
+        "parent_subscriber",
+        "middle_transformer",
+        "middle_subscriber",
+        "child_transformer",
+        "child_subscriber",
+    ]
+    assert received["parent"]["transformed_by"] == "parent"
+    assert received["middle"]["transformed_by"] == "middle"
+    assert received["child"]["transformed_by"] == "child"
+
+
+def test_parent_transformer_does_not_change_child_delivery() -> None:
+    """A transformer's payload changes are local to its namespace."""
     broker.clear()
 
-    received = []
+    received: dict[str, dict] = {}
 
     def add_timestamp(namespace: str, kwargs: dict) -> dict:
         kwargs["timestamp"] = "now"
         return kwargs
 
-    def handler(**kwargs) -> None:
-        received.append(kwargs)
+    def parent_handler(**kwargs) -> None:
+        received["parent"] = kwargs
+
+    def child_handler(**kwargs) -> None:
+        received["child"] = kwargs
 
     broker.register_transformer("system", add_timestamp)
-    broker.register_subscriber("system.io.file", handler)
+    broker.register_subscriber("system", parent_handler)
+    broker.register_subscriber("system.io.file", child_handler)
 
     broker.emit("system.io.file", data="test")
 
-    assert len(received) == 1
-    assert received[0]["timestamp"] == "now"
+    assert received["parent"]["timestamp"] == "now"
+    assert "timestamp" not in received["child"]
+
+
+def test_parent_transformer_block_does_not_block_child_delivery() -> None:
+    """Blocking is scoped to the transformer's registered namespace."""
+    broker.clear()
+    calls: list[str] = []
+
+    def block_parent(namespace: str, kwargs: dict) -> None:
+        return None
+
+    def parent_handler(**kwargs) -> None:
+        calls.append("parent")
+
+    def child_handler(**kwargs) -> None:
+        calls.append("child")
+
+    broker.register_transformer("system", block_parent)
+    broker.register_subscriber("system", parent_handler)
+    broker.register_subscriber("system.file", child_handler)
+
+    broker.emit("system.file")
+
+    assert calls == ["child"]
 
 
 def test_multiple_transformers_chain() -> None:

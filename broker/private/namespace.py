@@ -119,24 +119,58 @@ def ensure_namespace_exists(namespace: str) -> bool:
 
 
 def get_sorted_subscribers(namespace: str) -> list[tuple[str, "Subscriber"]]:
-    """Get all live subscribers matching namespace, sorted by priority descending."""
+    """
+    Get matching subscribers in deterministic delivery order.
+
+    Parent namespaces are returned before their children. Within each namespace,
+    subscribers are sorted by priority descending; equal priorities retain
+    registration order.
+    """
     result: list[tuple[str, "Subscriber"]] = []
 
-    for reg_namespace, entry in NAMESPACE_REGISTRY.items():
-        if matches(namespace, reg_namespace):
-            result.extend((reg_namespace, sub) for sub in entry.subscribers)
+    matching_namespaces = get_matching_registered_namespaces(namespace)
 
-    result.sort(key=lambda x: x[1].priority, reverse=True)
+    for reg_namespace in matching_namespaces:
+        subscribers = sorted(
+            NAMESPACE_REGISTRY[reg_namespace].subscribers,
+            key=lambda sub: sub.priority,
+            reverse=True,
+        )
+        result.extend((reg_namespace, sub) for sub in subscribers)
+
     return result
 
 
 def get_sorted_transformers(namespace: str) -> list[tuple[str, "Transformer"]]:
-    """Get all transformers matching namespace, sorted by priority."""
+    """
+    Get matching transformers in deterministic execution order.
+
+    Parent namespaces are returned before their children. Within each namespace,
+    transformers are sorted by priority descending; equal priorities retain
+    registration order.
+    """
     result: list[tuple[str, "Transformer"]] = []
 
-    for reg_namespace, entry in NAMESPACE_REGISTRY.items():
-        if matches(namespace, reg_namespace):
-            result.extend((reg_namespace, trans) for trans in entry.transformers)
+    matching_namespaces = get_matching_registered_namespaces(namespace)
 
-    result.sort(key=lambda x: x[1].priority, reverse=True)
+    for reg_namespace in matching_namespaces:
+        transformers = sorted(
+            NAMESPACE_REGISTRY[reg_namespace].transformers,
+            key=lambda trans: trans.priority,
+            reverse=True,
+        )
+        result.extend((reg_namespace, trans) for trans in transformers)
+
     return result
+
+
+def get_matching_registered_namespaces(namespace: str) -> list[str]:
+    """Return matching registered namespaces from parent to child."""
+    return sorted(
+        (
+            reg_namespace
+            for reg_namespace in NAMESPACE_REGISTRY
+            if matches(namespace, reg_namespace)
+        ),
+        key=lambda reg_namespace: reg_namespace.count("."),
+    )

@@ -62,17 +62,17 @@ def test_explain_emit_uses_runtime_order_without_calling_callbacks() -> None:
     assert calls == []
     assert plan.required_parameters == ("data",)
     assert [item.registered_namespace for item in plan.transformers] == [
-        "app.created",
         "app",
+        "app.created",
     ]
     assert [item.registered_namespace for item in plan.subscribers] == [
-        "app.created",
         "app",
+        "app.created",
     ]
-    assert plan.subscribers[0].will_run is False
-    assert plan.subscribers[0].skip_reason == "async subscriber is skipped by emit()"
-    assert plan.subscribers[1].is_one_shot is True
-    assert plan.subscribers[1].will_run is True
+    assert plan.subscribers[0].is_one_shot is True
+    assert plan.subscribers[0].will_run is True
+    assert plan.subscribers[1].will_run is False
+    assert plan.subscribers[1].skip_reason == "async subscriber is skipped by emit()"
 
     async_plan = broker.explain_emit("app.created", mode="async")
     assert all(item.will_run for item in async_plan.subscribers)

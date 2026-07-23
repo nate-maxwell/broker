@@ -2,7 +2,7 @@
 Side-effect-free analysis of the route an event would take through the broker.
 
 Explanations reflect namespace matching, execution priority, delivery mode,
-and pause state without invoking callbacks or changing broker state. Because
+and pause state without invoking callbacks or changing the broker state. Because
 transformers are not executed, their payload changes and blocking decisions
 remain intentionally outside the prediction.
 """
@@ -64,7 +64,8 @@ def explain_emit(
     """
     Explain the static delivery route for an emission without invoking callbacks.
 
-    The returned steps use the same matching and priority ordering as routing.
+    The returned steps use the same parent-first namespace ordering and
+    per-namespace priority ordering as routing.
     Transformers are not executed, so this function cannot predict payload
     changes or whether a transformer will block the event.
 

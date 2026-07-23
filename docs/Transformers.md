@@ -1,15 +1,21 @@
 ## Transformers
 
-Transformers intercept and modify event data before it reaches subscribers. They execute in priority order and are scoped to specific namespaces.
+Transformers intercept and modify event data before it reaches subscribers.
+They execute in priority order and are scoped to one registered namespace.
+When an emitted event matches multiple namespaces, each namespace transforms a
+fresh shallow copy of the original keyword mapping before delivering it to its
+own subscribers. Nested mutable values remain ordinary shared Python objects.
 
 ### Basic Transformer
 
 ```python
 import datetime
 
-@broker.transform('system', priority=10)
+import broker
+
+@broker.transform('system.startup', priority=10)
 def add_timestamp(namespace: str, kwargs: dict) -> dict:
-    """Add timestamp to all events."""
+    """Add a timestamp to system.startup delivery."""
     now = datetime.datetime.now().time().isoformat()[:-4]
     kwargs['timestamp'] = now
     return kwargs
@@ -22,26 +28,27 @@ broker.emit('system.startup')  # timestamp added automatically
 
 # Output: Started at 14:32:16.32
 ```
-Transformers do not alter the tracked signature for matching.
+Transformers do not alter the tracked signature for their namespace.
 
-Signature validation happens after transformers intercept data, and validation
-simply checks that the expected keywords are present. Transformers can add any
-number of additional keywords, and as long as the expected keywords are present,
-the validation will pass.
+For each namespace phase, signature validation happens after that namespace's
+transformers run. Transformers can add any number of additional keywords, and
+validation passes as long as that namespace's expected keywords are present.
+Those changes are discarded before the next namespace phase begins.
 
 ### Blocking Events
 
-Return `None` to prevent event delivery:
+Return `None` to prevent delivery to that transformer's namespace. Other
+matching parent or child namespaces continue independently:
 
 ```python
-@broker.transform('user')
+@broker.transform('user.login')
 def validate_user(namespace: str, kwargs: dict) -> dict | None:
     """Block events with invalid user_id."""
     if 'user_id' not in kwargs or kwargs['user_id'] < 0:
-        return None  # Event blocked - subscribers never called
+        return None  # Subscribers at user.login are not called
     return kwargs
 
-broker.emit('user.login', user_id=-1)  # Blocked silently
+broker.emit('user.login', user_id=-1)  # user.login delivery is blocked silently
 ```
 
 ### Transformer Priority

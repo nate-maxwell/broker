@@ -228,11 +228,12 @@ def test_named_kwargs_subscriber_cannot_require_unknown_contract_key() -> None:
         broker.register_subscriber("events", flexible)
 
 
-def test_parent_transformer_can_supply_required_child_key() -> None:
+def test_parent_transformer_cannot_supply_required_child_key() -> None:
     received: list[tuple[str, int]] = []
+    parent_calls: list[str] = []
 
     def parent(data: str) -> None:
-        pass
+        parent_calls.append(data)
 
     def child(data: str, sequence: int) -> None:
         received.append((data, sequence))
@@ -244,9 +245,12 @@ def test_parent_transformer_can_supply_required_child_key() -> None:
     broker.register_subscriber("events", parent)
     broker.register_subscriber("events.child", child)
     broker.register_transformer("events", add_sequence)
-    broker.emit("events.child", data="test")
 
-    assert received == [("test", 1)]
+    with pytest.raises(broker.EmitArgumentError, match="sequence"):
+        broker.emit("events.child", data="test")
+
+    assert parent_calls == ["test"]
+    assert received == []
 
 
 def test_validation_uses_payload_after_transformer_removes_key() -> None:

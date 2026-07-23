@@ -86,3 +86,23 @@ def validate_emit_args(namespace: str, kwargs: dict[str, Any]) -> None:
                 f"{sorted(expected_params)}, but the transformed payload is "
                 f"missing: {sorted(missing_params)}"
             )
+
+
+def _validate_namespace_emit_args(
+    emitted_namespace: str,
+    registered_namespace: str,
+    expected_params: set[str] | None,
+    kwargs: dict[str, Any],
+) -> None:
+    """Validate the transformed payload for one namespace delivery phase."""
+    if expected_params is None:
+        return
+
+    missing_params = expected_params - set(kwargs)
+    if missing_params:
+        raise EmitArgumentError(
+            f"Argument mismatch when emitting to '{emitted_namespace}'. "
+            f"Subscribers in '{registered_namespace}' require: "
+            f"{sorted(expected_params)}, but the transformed payload is "
+            f"missing: {sorted(missing_params)}"
+        )

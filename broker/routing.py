@@ -70,7 +70,10 @@ def emit(namespace: str, **kwargs: Any) -> None:
     """
     Emit an event to all matching synchronous subscribers.
 
-    Synchronous subscribers are called immediately in priority order.
+    Synchronous subscribers are called immediately in parent-to-child namespace
+    order, then descending priority order within each namespace.
+    Each namespace's transformers run immediately before its subscribers on an
+    isolated copy of the emitted keyword mapping.
     Asynchronous subscribers are NOT called - they are skipped entirely.
 
     Use emit_async() if you need to call async subscribers or await their
@@ -95,13 +98,12 @@ def emit(namespace: str, **kwargs: Any) -> None:
                 metric_context.paused()
             return
 
-        transformed_kwargs = _prepare_emit(namespace, kwargs, metric_context)
-        if transformed_kwargs is None:
+        was_blocked = _emit_sync_namespaces(namespace, kwargs, metric_context)
+        if was_blocked:
             if metric_context is not None:
                 metric_context.blocked()
             return
 
-        _emit_sync_subscribers(namespace, transformed_kwargs, metric_context)
         _emit_notify_event(
             source_namespace=namespace,
             notify_namespace=namespaces.BROKER_ON_EMIT,
@@ -122,7 +124,10 @@ async def emit_async(namespace: str, **kwargs: Any) -> None:
     """
     Asynchronously emit an event to all matching subscribers.
 
-    Both synchronous and asynchronous subscribers are called in priority order.
+    Both synchronous and asynchronous subscribers are called in parent-to-child
+    namespace order, then descending priority order within each namespace.
+    Each namespace's transformers run immediately before its subscribers on an
+    isolated copy of the emitted keyword mapping.
     - Synchronous subscribers are executed immediately.
     - Asynchronous subscribers are awaited sequentially.
 
@@ -149,13 +154,12 @@ async def emit_async(namespace: str, **kwargs: Any) -> None:
                 metric_context.paused()
             return
 
-        transformed_kwargs = _prepare_emit(namespace, kwargs, metric_context)
-        if transformed_kwargs is None:
+        was_blocked = await _emit_async_namespaces(namespace, kwargs, metric_context)
+        if was_blocked:
             if metric_context is not None:
                 metric_context.blocked()
             return
 
-        await _emit_async_subscribers(namespace, transformed_kwargs, metric_context)
         _emit_notify_event(
             source_namespace=namespace,
             notify_namespace=namespaces.BROKER_ON_EMIT_ASYNC,
@@ -253,17 +257,27 @@ def _is_paused() -> bool:
     return _paused > 0
 
 
-def _prepare_emit(
-    namespace: str,
+def _prepare_namespace_delivery(
+    emitted_namespace: str,
+    registered_namespace: str,
+    expected_params: Optional[set[str]],
+    transformers: list[transformer.Transformer],
     kwargs: dict[str, Any],
     metric_context: Optional[metrics._EmitMetricsContext],
 ) -> Optional[dict[str, Any]]:
-    """Apply matching transformers, then validate the resulting payload."""
-    transformed_kwargs = _apply_transformers(namespace, kwargs, metric_context)
+    """Transform and validate an isolated payload for one namespace."""
+    transformed_kwargs = _apply_transformers(
+        emitted_namespace, transformers, kwargs, metric_context
+    )
     if transformed_kwargs is None:
         return None
 
-    signature.validate_emit_args(namespace, transformed_kwargs)
+    signature._validate_namespace_emit_args(
+        emitted_namespace,
+        registered_namespace,
+        expected_params,
+        transformed_kwargs,
+    )
     return transformed_kwargs
 
 
@@ -288,58 +302,126 @@ def _flush_one_shots(one_shots: list[tuple[str, subscriber.SUBSCRIBER_SIG]]) -> 
         namespaces.cleanup_namespace_if_empty(reg_namespace)
 
 
-def _emit_sync_subscribers(
+def _emit_sync_namespaces(
     namespace: str,
-    transformed_kwargs: dict[str, Any],
+    kwargs: dict[str, Any],
     metric_context: Optional[metrics._EmitMetricsContext],
-) -> None:
+) -> bool:
     """
-    Orchestrates delivering events to synchronous subscribers in priority order.
+    Deliver isolated namespace phases from parent to child.
 
-    This coordinates subscriber iteration and one-shot cleanup. Per-subscriber
-    invocation and exception policy live in _deliver_sync_subscriber().
+    Each phase transforms a fresh copy of the emitted payload, validates it,
+    then invokes that namespace's subscribers. A blocked phase does not affect
+    later namespaces.
     """
     one_shots: list[tuple[str, subscriber.SUBSCRIBER_SIG]] = []
+    routes = _get_namespace_routes(namespace)
+    blocked_routes = 0
+    unblocked_routes = 0
 
-    for reg_namespace, sub in _namespace.get_sorted_subscribers(namespace):
-        if not _deliver_sync_subscriber(
-            namespace=namespace,
-            transformed_kwargs=transformed_kwargs,
-            reg_namespace=reg_namespace,
-            sub=sub,
-            one_shots=one_shots,
+    for reg_namespace, transformers, subscribers, expected_params in routes:
+        transformed_kwargs = _prepare_namespace_delivery(
+            emitted_namespace=namespace,
+            registered_namespace=reg_namespace,
+            expected_params=expected_params,
+            transformers=transformers,
+            kwargs=kwargs,
             metric_context=metric_context,
-        ):
-            break
+        )
+        if transformed_kwargs is None:
+            blocked_routes += 1
+            continue
+
+        unblocked_routes += 1
+        for sub in subscribers:
+            if not _deliver_sync_subscriber(
+                namespace=namespace,
+                transformed_kwargs=transformed_kwargs,
+                reg_namespace=reg_namespace,
+                sub=sub,
+                one_shots=one_shots,
+                metric_context=metric_context,
+            ):
+                _flush_one_shots(one_shots)
+                return False
 
     _flush_one_shots(one_shots)
+    return blocked_routes > 0 and unblocked_routes == 0
 
 
-async def _emit_async_subscribers(
+async def _emit_async_namespaces(
     namespace: str,
-    transformed_kwargs: dict[str, Any],
+    kwargs: dict[str, Any],
     metric_context: Optional[metrics._EmitMetricsContext],
-) -> None:
-    """
-    Orchestrates delivering events to all matching subscribers in priority order.
-
-    This coordinates subscriber iteration and one-shot cleanup. Per-subscriber
-    invocation and exception policy live in _deliver_async_subscriber().
-    """
+) -> bool:
+    """Deliver isolated namespace phases asynchronously from parent to child."""
     one_shots: list[tuple[str, subscriber.SUBSCRIBER_SIG]] = []
+    routes = _get_namespace_routes(namespace)
+    blocked_routes = 0
+    unblocked_routes = 0
 
-    for reg_namespace, sub in _namespace.get_sorted_subscribers(namespace):
-        if not await _deliver_async_subscriber(
-            namespace=namespace,
-            transformed_kwargs=transformed_kwargs,
-            reg_namespace=reg_namespace,
-            sub=sub,
-            one_shots=one_shots,
+    for reg_namespace, transformers, subscribers, expected_params in routes:
+        transformed_kwargs = _prepare_namespace_delivery(
+            emitted_namespace=namespace,
+            registered_namespace=reg_namespace,
+            expected_params=expected_params,
+            transformers=transformers,
+            kwargs=kwargs,
             metric_context=metric_context,
-        ):
-            break
+        )
+        if transformed_kwargs is None:
+            blocked_routes += 1
+            continue
+
+        unblocked_routes += 1
+        for sub in subscribers:
+            if not await _deliver_async_subscriber(
+                namespace=namespace,
+                transformed_kwargs=transformed_kwargs,
+                reg_namespace=reg_namespace,
+                sub=sub,
+                one_shots=one_shots,
+                metric_context=metric_context,
+            ):
+                _flush_one_shots(one_shots)
+                return False
 
     _flush_one_shots(one_shots)
+    return blocked_routes > 0 and unblocked_routes == 0
+
+
+def _get_namespace_routes(
+    namespace: str,
+) -> list[
+    tuple[
+        str,
+        list[transformer.Transformer],
+        list[subscriber.Subscriber],
+        Optional[set[str]],
+    ]
+]:
+    """Snapshot matching namespace routes before callback execution begins."""
+    routes = []
+    for reg_namespace in _namespace.get_matching_registered_namespaces(namespace):
+        entry = _namespace.NAMESPACE_REGISTRY[reg_namespace]
+        routes.append(
+            (
+                reg_namespace,
+                sorted(
+                    entry.transformers,
+                    key=lambda item: item.priority,
+                    reverse=True,
+                ),
+                sorted(
+                    entry.subscribers,
+                    key=lambda item: item.priority,
+                    reverse=True,
+                ),
+                entry.signature.copy() if entry.signature is not None else None,
+            )
+        )
+
+    return routes
 
 
 def _deliver_sync_subscriber(
@@ -432,14 +514,15 @@ def _emit_notify_event(
 
 def _apply_transformers(
     namespace: str,
+    transformers: list[transformer.Transformer],
     kwargs: dict[str, Any],
     metric_context: Optional[metrics._EmitMetricsContext],
 ) -> Optional[dict[str, Any]]:
     """
-    Apply all matching transformers to event kwargs.
+    Apply one registered namespace's transformers to a payload copy.
 
-    Transformers execute in priority order. If any transformer returns None,
-    propagation stops and the event is blocked.
+    Transformers execute in descending priority order. If any returns None,
+    delivery is blocked for this namespace only.
 
     Args:
         namespace (str): The event namespace being emitted.
@@ -449,7 +532,7 @@ def _apply_transformers(
     """
     current_kwargs = kwargs.copy()
 
-    for _, transformer_obj in _namespace.get_sorted_transformers(namespace):
+    for transformer_obj in transformers:
         callback = transformer_obj.callback
         if callback is None:
             continue
